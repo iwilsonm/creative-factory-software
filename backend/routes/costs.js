@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getProjectStats, getSetting, getAgentCosts } from '../convexClient.js';
-import { getCostSummary, getCostHistoryData, getCostHistoryRangeData, syncOpenAICosts, getRecurringBatchCostEstimate } from '../services/costTracker.js';
+import { getCostSummary, getCostHistoryData, getCostHistoryRangeData, getRecurringBatchCostEstimate } from '../services/costTracker.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -53,14 +53,6 @@ async function getCachedCostPayload(key, ttlMs, loader) {
   });
 
   return promise;
-}
-
-function invalidateCostCache(...prefixes) {
-  for (const key of ROUTE_CACHE.keys()) {
-    if (prefixes.some(prefix => key.startsWith(prefix))) {
-      ROUTE_CACHE.delete(key);
-    }
-  }
 }
 
 /**
@@ -170,20 +162,6 @@ router.get('/costs/rates', async (req, res) => {
     });
   } catch (err) {
     console.error('[Costs API] Rates error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * POST /costs/sync — Manual trigger for OpenAI cost sync
- */
-router.post('/costs/sync', async (req, res) => {
-  try {
-    const result = await syncOpenAICosts();
-    invalidateCostCache('summary:', 'history:');
-    res.json(result);
-  } catch (err) {
-    console.error('[Costs API] Sync error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

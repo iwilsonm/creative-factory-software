@@ -307,7 +307,7 @@ export default function ProjectDetail() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-16">
           <p className="text-ed-ink2 text-sm mb-4">Project not found</p>
-          <Link to="/projects" className="text-ed-accent hover:text-ed-accent/80 text-sm transition-colors">Back to Projects</Link>
+          <Link to="/projects" className="text-ed-accent hover:text-ed-accent/80 text-sm transition-colors">Back to All Projects</Link>
         </div>
       </div>
     );

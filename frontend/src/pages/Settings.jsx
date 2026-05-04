@@ -34,10 +34,6 @@ const CREDENTIAL_DELETE_COPY = {
     label: 'OpenAI API Key',
     message: 'Remove the OpenAI API key? Copywriting, Creative Director reasoning, GPT Image 2, and OpenAI checks will stop until a new key is saved.',
   },
-  openai_admin_key: {
-    label: 'OpenAI Billing Sync Admin Key',
-    message: 'Remove the OpenAI Billing Sync Admin Key? Generation will still work, but exact OpenAI org-level billing sync will stop.',
-  },
   gemini_api_key: {
     label: 'Gemini API Key',
     message: 'Remove the Gemini API key? Gemini image generation and batch image generation will stop until a new key is saved.',
@@ -389,7 +385,6 @@ export default function Settings() {
   const [settings, setSettings] = useState({});
   const [form, setForm] = useState({
     openai_api_key: '',
-    openai_admin_key: '',
     gemini_api_key: '',
     anthropic_api_key: '',
     gemini_rate_1k: '',
@@ -410,6 +405,7 @@ export default function Settings() {
   // Gemini rate refresh
   const [refreshingRates, setRefreshingRates] = useState(false);
   const [rateRefreshMsg, setRateRefreshMsg] = useState('');
+  const [rateRefreshKind, setRateRefreshKind] = useState('info');
 
   // Password change
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
@@ -451,7 +447,6 @@ export default function Settings() {
     try {
       const payload = {};
       if (form.openai_api_key.trim()) payload.openai_api_key = form.openai_api_key.trim();
-      if (form.openai_admin_key.trim()) payload.openai_admin_key = form.openai_admin_key.trim();
       if (form.gemini_api_key.trim()) payload.gemini_api_key = form.gemini_api_key.trim();
       if (form.anthropic_api_key.trim()) payload.anthropic_api_key = form.anthropic_api_key.trim();
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
@@ -470,7 +465,7 @@ export default function Settings() {
       }
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', gemini_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
       await loadSettings();
     } catch (err) {
       const message = err.message || 'Failed to save settings';
@@ -543,32 +538,22 @@ export default function Settings() {
   const handleRefreshRates = async () => {
     setRefreshingRates(true);
     setRateRefreshMsg('');
+    setRateRefreshKind('info');
     try {
       const result = await api.refreshGeminiRates();
       if (result.success) {
         setRateRefreshMsg('Rates updated successfully!');
+        setRateRefreshKind('success');
         await loadSettings();
       } else {
         setRateRefreshMsg(result.message || 'Could not parse rates. Existing rates preserved.');
+        setRateRefreshKind('warning');
       }
     } catch (err) {
       setRateRefreshMsg(`Error: ${err.message}`);
+      setRateRefreshKind('error');
     } finally {
       setRefreshingRates(false);
-    }
-  };
-
-  const handleSyncOpenAI = async () => {
-    setRateRefreshMsg('');
-    try {
-      const result = await api.syncCosts();
-      if (result.synced) {
-        setRateRefreshMsg(`OpenAI costs synced: ${result.recordCount} records.`);
-      } else {
-        setRateRefreshMsg(result.reason || 'OpenAI sync unavailable.');
-      }
-    } catch (err) {
-      setRateRefreshMsg(`Error: ${err.message}`);
     }
   };
 
@@ -860,7 +845,7 @@ export default function Settings() {
             </button>
           </div>
           <p className="text-[12px] text-ed-ink3 mb-4">
-            Auto-refreshed daily from Google pricing.
+            Refresh pulls current Gemini image pricing from Google. You can edit these manually if the pricing page changes before the parser catches up.
             {settings.gemini_rates_updated_at && (
               <span> Last updated: {new Date(settings.gemini_rates_updated_at).toLocaleString()}</span>
             )}
@@ -868,8 +853,10 @@ export default function Settings() {
 
           {rateRefreshMsg && (
             <div className={`text-[13px] rounded-xl p-3 mb-4 ${
-              rateRefreshMsg.startsWith('Error')
+              rateRefreshKind === 'error'
                 ? 'bg-ed-rust/10 border border-ed-rust/30 text-ed-rust'
+                : rateRefreshKind === 'warning'
+                  ? 'bg-ed-gold/10 border border-ed-gold/30 text-ed-ink2'
                 : 'bg-ed-green/5 border border-ed-green/15 text-ed-green'
             }`}>
               {rateRefreshMsg}
@@ -883,7 +870,7 @@ export default function Settings() {
                 value={form.gemini_rate_1k}
                 onChange={e => setForm(p => ({ ...p, gemini_rate_1k: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                placeholder="e.g., 0.039"
+                placeholder="e.g., 0.067"
               />
             </div>
             <div>
@@ -892,7 +879,7 @@ export default function Settings() {
                 value={form.gemini_rate_2k}
                 onChange={e => setForm(p => ({ ...p, gemini_rate_2k: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                placeholder="e.g., 0.134"
+                placeholder="e.g., 0.101"
               />
             </div>
             <div>
@@ -901,7 +888,7 @@ export default function Settings() {
                 value={form.gemini_rate_4k}
                 onChange={e => setForm(p => ({ ...p, gemini_rate_4k: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                placeholder="e.g., 0.xxx"
+                placeholder="e.g., 0.151"
               />
             </div>
           </div>
@@ -918,37 +905,6 @@ export default function Settings() {
               placeholder="e.g., 0.04"
             />
           </div>
-        </div>
-
-        {/* Cost Sync */}
-        <div className="ed-card p-6">
-          <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-1 flex items-center gap-1">Cost Sync <InfoTooltip text="Manually refresh OpenAI cost data when the dashboard looks stale. Gemini image costs are logged by the app when generation runs." position="right" /></h2>
-          <p className="text-[12px] text-ed-ink3 mb-4">
-            OpenAI generation works with the normal OpenAI API key. Exact org-level OpenAI billing sync is optional and requires a separate Admin key.
-          </p>
-          <div className="mb-4">
-            <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-2">
-              OpenAI Billing Sync Admin Key
-              <KeyStatusPill set={!!settings.openai_admin_key} />
-              <InfoTooltip text="Optional. Used only to import exact OpenAI organization billing into cost history. Removing it does not affect ad generation, GPT Image 2, or Creative Director runs." position="right" />
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={form.openai_admin_key}
-                onChange={e => setForm(p => ({ ...p, openai_admin_key: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
-                placeholder={settings.openai_admin_key || 'Enter OpenAI Admin key'}
-              />
-              <CredentialRemoveButton settingKey="openai_admin_key" settings={settings} onRemove={setPendingCredentialDelete} />
-            </div>
-          </div>
-          <button
-            onClick={handleSyncOpenAI}
-            className="ed-ghost text-[13px]"
-          >
-            Sync OpenAI Costs Now
-          </button>
         </div>
 
         {/* Save button */}

@@ -381,7 +381,6 @@ export const api = {
   },
   getRecurringCosts: () => cachedRequest('/costs/recurring'),
   getCostRates: () => cachedRequest('/costs/rates'),
-  syncCosts: () => request('/costs/sync', { method: 'POST' }),
   getAgentCosts: (days = 30) => request(`/costs/agents?days=${days}`),
 
   // Settings

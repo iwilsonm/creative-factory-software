@@ -26,6 +26,25 @@ beforeEach(() => {
 // ── parseGeminiImageRates ───────────────────────────────────────────────────
 
 describe('parseGeminiImageRates', () => {
+  it('extracts current Gemini 3.1 Flash Image Preview standard rates by resolution', () => {
+    const html = `
+      <h2>Gemini 3.1 Flash Image Preview</h2>
+      <h3>Standard</h3>
+      <p>Output price Not available $3 (text and thinking)</p>
+      <p>$60.00 (images)</p>
+      <p>Equivalent to $0.045 per 0.5K image*</p>
+      <p>$0.067 per 1K image*, $0.101 per 2K image*, and $0.151 per 4K image*.</p>
+      <h3>Batch</h3>
+      <p>$0.034 per 1K image*, $0.050 per 2K image*, and $0.076 per 4K image*.</p>
+    `;
+    const rates = parseGeminiImageRates(html);
+    expect(rates).toEqual({
+      rate_1k: 0.067,
+      rate_2k: 0.101,
+      rate_4k: 0.151,
+    });
+  });
+
   it('extracts rates from HTML with Gemini 3 Pro Image section', () => {
     const html = `
       <h3>Gemini 3 Pro Image Preview</h3>

@@ -277,6 +277,8 @@ export default defineSchema({
     meta_billing_event: v.optional(v.string()),
     posted_at: v.optional(v.string()),                 // ISO timestamp; Day 1 of Phase 3 observation
     meta_adset_id: v.optional(v.string()),             // Meta's ad set ID after posting
+    ready_source: v.optional(v.string()),              // "creative_director" | "manual_planner" — source when first moved to Ready to Post
+    ready_at: v.optional(v.string()),                  // ISO timestamp when first moved to Ready to Post
     // Phase 2B — Meta posting metadata
     meta_campaign_id: v.optional(v.string()),          // resolved-or-created Meta campaign for this ad set
     meta_post_error: v.optional(v.string()),           // error message if posting failed

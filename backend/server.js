@@ -38,7 +38,7 @@ import observationRoutes, { observationAdminRouter } from './routes/observation.
 import cronRoutes from './routes/cron.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
-import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
+import { refreshGeminiRates } from './services/costTracker.js';
 import { getSchedulerStatus, initializeScheduler } from './services/scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -273,14 +273,6 @@ try {
   // Routes — agent cost logging (localhost only)
   app.use('/api/agent-cost', localhostOnly, agentCostRouter);
   // Agent-triggered endpoints (localhost only)
-  app.post('/api/agent-cost/sync-openai', localhostOnly, async (req, res) => {
-    try {
-      await syncOpenAICosts();
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
   app.post('/api/agent-cost/refresh-gemini-rates', localhostOnly, async (req, res) => {
     try {
       const result = await refreshGeminiRates();

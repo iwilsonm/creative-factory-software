@@ -72,7 +72,7 @@ const OPERATION_META = {
   // Director
   conductor_angle_generation:    { group: 'conductor' },
   conductor_learning_analysis:   { group: 'conductor' },
-  // OpenAI Billing API (org-wide, not operation-specific)
+  // Historical OpenAI billing rows from the removed org-level sync.
   openai_billing:                { group: 'billing' },
   openai_billing_gpt5:           { group: 'billing' },
   openai_billing_gpt4:           { group: 'billing' },
@@ -92,7 +92,7 @@ const OPERATION_GROUPS = {
   lp_qa:     { label: 'LP Quality & Fixes',  color: 'bg-[#7C6DCD]/70' },
   filter:    { label: 'Creative Filter',     color: 'bg-[#7C6DCD]' },
   conductor: { label: 'Director',            color: 'bg-[#7C6DCD]' },
-  billing:   { label: 'OpenAI Billing Sync', color: 'bg-[#5B8DEF]/50' },
+  billing:   { label: 'Historical OpenAI Billing', color: 'bg-[#5B8DEF]/50' },
   other:     { label: 'Other',              color: 'bg-ed-ink3/50' },
 };
 

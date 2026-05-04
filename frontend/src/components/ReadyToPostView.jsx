@@ -34,6 +34,8 @@ function composeFlexFromAdSet(adSet, deployments) {
     notes: sample.notes || '',
     angle_id: adSet.angle_id || null,
     lifecycle_status: adSet.lifecycle_status || '',
+    ready_source: adSet.ready_source || '',
+    ready_at: adSet.ready_at || '',
     lp_primary_url: '',
     lp_secondary_url: '',
     gauntlet_lp_urls: '',
@@ -103,6 +105,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editingCard, setEditingCard] = useState(null); // cardKey of card being edited (admin only)
   const [editFields, setEditFields] = useState({}); // temp edit values
   const [savingEdit, setSavingEdit] = useState(false);
+  const [editingSection, setEditingSection] = useState(null); // `${cardKey}:${section}`
+  const [sectionFields, setSectionFields] = useState({});
+  const [savingSection, setSavingSection] = useState(null);
   const [sortBy, setSortBy] = useState('newest');
   const [selectedCards, setSelectedCards] = useState(new Map()); // Map<cardKey, 'flex'|'single'>
   const [bulkMarking, setBulkMarking] = useState(false);
@@ -245,6 +250,57 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   const parseCount = (jsonStr) => parseTextList(jsonStr).length;
+
+  const sectionEditKey = (cardKey, section) => `${cardKey}:${section}`;
+
+  const startSectionEdit = (cardKey, section, fields = {}) => {
+    setEditingSection(sectionEditKey(cardKey, section));
+    setSectionFields(fields);
+  };
+
+  const cancelSectionEdit = () => {
+    setEditingSection(null);
+    setSectionFields({});
+  };
+
+  const updateSectionField = (key, value) => {
+    setSectionFields(prev => ({ ...prev, [key]: value }));
+  };
+
+  const updateSectionArrayItem = (key, index, value) => {
+    setSectionFields(prev => {
+      const arr = [...(prev[key] || [])];
+      arr[index] = value;
+      return { ...prev, [key]: arr };
+    });
+  };
+
+  const addSectionArrayItem = (key) => {
+    setSectionFields(prev => ({ ...prev, [key]: [...(prev[key] || []), ''] }));
+  };
+
+  const removeSectionArrayItem = (key, index) => {
+    setSectionFields(prev => {
+      const arr = [...(prev[key] || [])];
+      arr.splice(index, 1);
+      return { ...prev, [key]: arr };
+    });
+  };
+
+  const formatReadySource = (source, fallbackName = '') => {
+    if (source === 'creative_director') return 'Creative Director';
+    if (source === 'manual_planner') return 'Manual Planner';
+    if (/^Director\s+—/i.test(fallbackName || '')) return 'Creative Director';
+    return 'Manual Planner';
+  };
+
+  const resolveReadyTimestamp = (item, children = []) => (
+    item?.ready_at ||
+    item?.updated_at ||
+    item?.created_at ||
+    children.find(d => d.created_at)?.created_at ||
+    ''
+  );
 
   // ── Notes ──────────────────────────────────────────────────────────────
 
@@ -647,6 +703,135 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }
   };
 
+  const savePlacementSection = async ({ id, cardKey, isFlex, currentAdSetId = '', currentDeployment = null }) => {
+    setSavingSection(sectionEditKey(cardKey, 'placement'));
+    try {
+      const newCampaignId = sectionFields.campaign_id || '';
+      const adSetNameTyped = (sectionFields.ad_set_name || '').trim();
+      const adNameTyped = (sectionFields.ad_name || '').trim();
+
+      if (newCampaignId && !adSetNameTyped) {
+        addToast('Please enter an ad set name', 'error');
+        setSavingSection(null);
+        return;
+      }
+
+      if (isFlex) {
+        const adSetFields = {};
+        if (newCampaignId) adSetFields.campaign_id = newCampaignId;
+        if (adSetNameTyped) adSetFields.name = adSetNameTyped;
+        if (Object.keys(adSetFields).length > 0) {
+          await api.updateAdSetUnified(projectId, id, adSetFields);
+          setAdSets(prev => ensureArray(prev, 'ReadyToPostView.adSetsState').map(a =>
+            a.id === id ? { ...a, ...adSetFields } : a
+          ));
+          setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f =>
+            f.id === id ? { ...f, ...adSetFields, name: adSetFields.name ?? f.name } : f
+          ));
+        }
+      } else {
+        const payload = {};
+        let resolvedAdSetId = currentAdSetId || currentDeployment?.local_adset_id || '';
+
+        if (newCampaignId && adSetNameTyped) {
+          const existingAdSet = safeAdSets.find(a => a.campaign_id === newCampaignId && a.name === adSetNameTyped);
+          if (existingAdSet) {
+            resolvedAdSetId = existingAdSet.id;
+          } else {
+            const currentAdSet = resolvedAdSetId ? safeAdSets.find(a => a.id === resolvedAdSetId) : null;
+            if (currentAdSet && currentAdSet.name === adSetNameTyped) {
+              await api.updateAdSetUnified(projectId, resolvedAdSetId, { campaign_id: newCampaignId });
+              setAdSets(prev => ensureArray(prev, 'ReadyToPostView.adSetsState').map(a =>
+                a.id === resolvedAdSetId ? { ...a, campaign_id: newCampaignId } : a
+              ));
+            } else {
+              const result = await api.createAdSet(newCampaignId, adSetNameTyped, projectId);
+              resolvedAdSetId = result.id;
+              setAdSets(prev => [
+                ...ensureArray(prev, 'ReadyToPostView.adSetsState'),
+                { id: resolvedAdSetId, name: adSetNameTyped, campaign_id: newCampaignId, project_id: projectId },
+              ]);
+            }
+          }
+          payload.local_campaign_id = newCampaignId;
+          payload.local_adset_id = resolvedAdSetId;
+        }
+
+        if (adNameTyped) payload.ad_name = adNameTyped;
+        if (Object.keys(payload).length > 0) {
+          await api.updateDeployment(id, payload);
+          setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+            d.id === id ? { ...d, ...payload } : d
+          ));
+        }
+      }
+
+      addToast('Placement saved', 'success');
+      cancelSectionEdit();
+    } catch (err) {
+      console.error('Failed to save placement section:', err);
+      addToast('Failed to save placement', 'error');
+    }
+    setSavingSection(null);
+  };
+
+  const saveTextSection = async ({ id, cardKey, isFlex, field }) => {
+    setSavingSection(sectionEditKey(cardKey, field));
+    try {
+      const items = (sectionFields.items || []).map(item => (item || '').trim()).filter(Boolean);
+      const json = JSON.stringify(items);
+      if (isFlex) {
+        const flexAd = safeFlexAds.find(f => f.id === id);
+        const children = flexAd ? getFlexChildDeps(flexAd) : [];
+        const depField = field === 'primary_texts' ? 'primary_texts' : 'ad_headlines';
+        const flexField = field === 'primary_texts' ? 'primary_texts' : 'headlines';
+        await Promise.all(children.map(d => api.updateDeployment(d.id, { [depField]: json })));
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+          children.some(c => c.id === d.id) ? { ...d, [depField]: json } : d
+        ));
+        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f =>
+          f.id === id ? { ...f, [flexField]: json } : f
+        ));
+      } else {
+        await api.updateDeployment(id, { [field]: json });
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+          d.id === id ? { ...d, [field]: json } : d
+        ));
+      }
+      addToast(field === 'primary_texts' ? 'Primary text saved' : 'Headlines saved', 'success');
+      cancelSectionEdit();
+    } catch (err) {
+      console.error('Failed to save text section:', err);
+      addToast('Failed to save copy', 'error');
+    }
+    setSavingSection(null);
+  };
+
+  const saveAdNamesSection = async (flexAd, cardKey) => {
+    setSavingSection(sectionEditKey(cardKey, 'ad_names'));
+    try {
+      const children = getFlexChildDeps(flexAd);
+      const names = sectionFields.names || {};
+      const changed = children.filter(d => {
+        const nextName = (names[d.id] || '').trim();
+        const currentName = d.ad_name || d.ad?.headline || '';
+        return nextName && nextName !== currentName;
+      });
+      await Promise.all(changed.map(d => api.updateDeployment(d.id, { ad_name: names[d.id].trim() })));
+      if (changed.length > 0) {
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+          names[d.id] ? { ...d, ad_name: names[d.id].trim() } : d
+        ));
+      }
+      addToast('Ad names saved', 'success');
+      cancelSectionEdit();
+    } catch (err) {
+      console.error('Failed to save ad names:', err);
+      addToast('Failed to save ad names', 'error');
+    }
+    setSavingSection(null);
+  };
+
   const updateEditField = (key, value) => {
     setEditFields(prev => ({ ...prev, [key]: value }));
   };
@@ -847,8 +1032,256 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
+  const SectionEditButton = ({ onClick, label = 'Edit' }) => {
+    if (isPoster) return null;
+    return (
+      <button
+        onClick={onClick}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-ed-ink2 hover:text-ed-ink hover:bg-ed-bg transition-colors"
+      >
+        <EditPencilIcon />
+        {label}
+      </button>
+    );
+  };
+
+  const OriginMeta = ({ source, timestamp, fallbackName }) => (
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-ed-ink2">
+      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-ed-bg border border-ed-line">
+        <span className="font-semibold text-ed-ink">Source:</span>
+        {formatReadySource(source, fallbackName)}
+      </span>
+      {timestamp && (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-ed-bg border border-ed-line">
+          <span className="font-semibold text-ed-ink">Ready since:</span>
+          {formatAddedDate(timestamp) || timestamp}
+        </span>
+      )}
+    </div>
+  );
+
+  const PlacementEditForm = ({ cardKey, isFlex, id, currentAdSetId, currentDeployment }) => {
+    const saveKey = sectionEditKey(cardKey, 'placement');
+    return (
+      <div className="mt-3 pt-3 border-t border-ed-accent/15 space-y-3">
+        <div>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Campaign</label>
+          <select
+            value={sectionFields.campaign_id || ''}
+            onChange={e => updateSectionField('campaign_id', e.target.value)}
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
+          >
+            <option value="">Select a campaign...</option>
+            {safeCampaigns.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Set Name</label>
+          <input
+            type="text"
+            value={sectionFields.ad_set_name || ''}
+            onChange={e => updateSectionField('ad_set_name', e.target.value)}
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
+          />
+        </div>
+        {!isFlex && (
+          <div>
+            <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Name</label>
+            <input
+              type="text"
+              value={sectionFields.ad_name || ''}
+              onChange={e => updateSectionField('ad_name', e.target.value)}
+              className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
+            />
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={cancelSectionEdit}
+            className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors">Cancel</button>
+          <button
+            onClick={() => savePlacementSection({ id, cardKey, isFlex, currentAdSetId, currentDeployment })}
+            disabled={savingSection === saveKey}
+            className="px-3 py-1 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+          >
+            {savingSection === saveKey ? 'Saving...' : 'Save Placement'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const EditableTextListSection = ({ value, sectionLabel, helper, cardKey, sectionId, id, isFlex, field }) => {
+    const items = parseTextList(value);
+    const allText = items.join('\n\n');
+    const allCopied = items.length > 0 && items.every((_, i) => copiedItems.has(`${cardKey}-${sectionId}-${i}`));
+    const editKey = sectionEditKey(cardKey, field);
+    const isEditing = editingSection === editKey;
+
+    const handleCopyItem = (text, label, index) => {
+      copyToClipboard(text, label);
+      setCopiedItems(prev => new Set(prev).add(`${cardKey}-${sectionId}-${index}`));
+    };
+
+    const handleCopyAll = () => {
+      copyToClipboard(allText, 'All ' + sectionId);
+      const next = new Set(copiedItems);
+      items.forEach((_, i) => next.add(`${cardKey}-${sectionId}-${i}`));
+      setCopiedItems(next);
+    };
+
+    return (
+      <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">{sectionLabel}</span>
+            {helper && <p className="text-[11px] text-ed-ink2 mt-0.5 leading-relaxed">{helper}</p>}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {!isEditing && items.length > 0 && (
+              <button onClick={(e) => { e.stopPropagation(); handleCopyAll(); }}
+                className={`inline-flex items-center gap-1 rounded-md font-medium hover:bg-ed-accent/10 transition-colors px-2 py-1 text-[10px] ${
+                  allCopied ? 'bg-ed-green/10 text-ed-green' : 'bg-ed-accent/5 text-ed-accent'
+                }`}>
+                {allCopied ? 'All Copied' : 'Copy All'}
+              </button>
+            )}
+            {!isEditing && (
+              <SectionEditButton
+                onClick={() => startSectionEdit(cardKey, field, { items })}
+                label={items.length > 0 ? 'Edit' : 'Add'}
+              />
+            )}
+          </div>
+        </div>
+
+        {isEditing ? (
+          <div className="space-y-2">
+            {(sectionFields.items || ['']).map((text, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <textarea
+                  value={text}
+                  onChange={e => updateSectionArrayItem('items', i, e.target.value)}
+                  rows={field === 'primary_texts' ? 3 : 1}
+                  className="flex-1 text-[13px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ed-accent/20 resize-y"
+                />
+                <button
+                  onClick={() => removeSectionArrayItem('items', i)}
+                  className="px-2 py-1 rounded-md text-[10px] text-ed-rust hover:bg-ed-rust/10"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => addSectionArrayItem('items')}
+              className="px-2.5 py-1 rounded-md text-[11px] text-ed-accent hover:bg-ed-accent/10 transition-colors"
+            >
+              Add variation
+            </button>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={cancelSectionEdit}
+                className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors">Cancel</button>
+              <button
+                onClick={() => saveTextSection({ id, cardKey, isFlex, field })}
+                disabled={savingSection === editKey}
+                className="px-3 py-1 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+              >
+                {savingSection === editKey ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        ) : items.length > 0 ? (
+          <div className="space-y-2">
+            {items.map((text, i) => {
+              const itemKey = `${cardKey}-${sectionId}-${i}`;
+              const isCopied = copiedItems.has(itemKey);
+              return (
+                <div key={i} className={`flex items-start gap-2.5 rounded-lg p-3 transition-all duration-300 ${isCopied ? 'bg-ed-green/5 border border-ed-green/10' : 'bg-ed-bg'}`}>
+                  <span className={`text-[12px] font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors duration-300 ${
+                    isCopied ? 'bg-ed-green text-white' : 'bg-ed-accent text-white'
+                  }`}>{isCopied ? '✓' : i + 1}</span>
+                  <div className={`flex-1 text-[13px] whitespace-pre-wrap leading-relaxed transition-all duration-300 ${
+                    isCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'
+                  }`}>{text}</div>
+                  <button onClick={(e) => { e.stopPropagation(); handleCopyItem(text, 'Copy', i); }}
+                    className={`inline-flex items-center gap-1 rounded-md font-medium transition-colors flex-shrink-0 px-1.5 py-0.5 text-[9px] ${
+                      isCopied ? 'bg-ed-green/10 text-ed-green hover:bg-ed-green/15' : 'bg-ed-accent/5 text-ed-accent hover:bg-ed-accent/10'
+                    }`}>
+                    {isCopied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-[12px] text-ed-ink3 italic">No {field === 'primary_texts' ? 'primary text' : 'headline'} variations yet.</p>
+        )}
+      </div>
+    );
+  };
+
+  const AdNamesSection = ({ flexAd, cardKey, childDeps }) => {
+    if (isPoster) return null;
+    const editKey = sectionEditKey(cardKey, 'ad_names');
+    const isEditing = editingSection === editKey;
+    return (
+      <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
+        <div className="flex items-center justify-between mb-3">
+          <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest">Ad Names</span>
+          {!isEditing && (
+            <SectionEditButton
+              onClick={() => {
+                const names = {};
+                childDeps.forEach(d => { names[d.id] = d.ad_name || d.ad?.headline || ''; });
+                startSectionEdit(cardKey, 'ad_names', { names });
+              }}
+            />
+          )}
+        </div>
+        {isEditing ? (
+          <div className="space-y-2">
+            {childDeps.map((d, i) => (
+              <div key={d.id} className="grid grid-cols-[36px_1fr] gap-2 items-center">
+                {d.imageUrl ? <img src={d.imageUrl} alt="" className="w-9 h-9 object-cover rounded-lg bg-ed-bg" loading="lazy" /> : <div className="w-9 h-9 rounded-lg bg-ed-bg" />}
+                <input
+                  type="text"
+                  value={sectionFields.names?.[d.id] || ''}
+                  onChange={e => updateSectionField('names', { ...(sectionFields.names || {}), [d.id]: e.target.value })}
+                  placeholder={`Ad ${i + 1} name`}
+                  className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
+                />
+              </div>
+            ))}
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={cancelSectionEdit}
+                className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors">Cancel</button>
+              <button
+                onClick={() => saveAdNamesSection(flexAd, cardKey)}
+                disabled={savingSection === editKey}
+                className="px-3 py-1 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+              >
+                {savingSection === editKey ? 'Saving...' : 'Save Ad Names'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-2">
+            {childDeps.map((d, i) => (
+              <div key={d.id} className="text-[12px] text-ed-ink bg-ed-bg rounded-lg px-3 py-2">
+                <span className="text-ed-ink2">Ad {i + 1}: </span>
+                <span className="font-semibold">{d.ad_name || d.ad?.headline || 'Unnamed ad'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // "Post in" section: Campaign + Ad Set + Ad Name
-  const PostInSection = ({ campaignName, adSetName, duplicateAdSetName, adName, cardKey }) => {
+  const PostInSection = ({ campaignName, adSetName, duplicateAdSetName, adName, cardKey, onEdit, editContent }) => {
     if (!campaignName && !adSetName) {
       return (
         <div className="bg-[rgba(168,84,59,0.06)] border-2 border-ed-accent/30 rounded-xl p-4">
@@ -870,7 +1303,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
     return (
       <div className="bg-ed-accent/5 border-2 border-ed-accent/15 rounded-xl p-4">
-        <span className="inline-block px-2 py-0.5 rounded bg-ed-accent text-white text-[10px] font-bold uppercase tracking-widest mb-3">Post This Ad In</span>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <span className="inline-block px-2 py-0.5 rounded bg-ed-accent text-white text-[10px] font-bold uppercase tracking-widest">Post This Ad In</span>
+          {!editContent && <SectionEditButton onClick={onEdit} />}
+        </div>
         <div className="space-y-2.5">
           <div className="flex items-center gap-3">
             <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Campaign</span>
@@ -889,6 +1325,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </div>
           )}
         </div>
+        {editContent}
       </div>
     );
   };
@@ -1203,6 +1640,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isSendingBack = sendingBackIds.has(dep.id);
     const { campaignName, adSetName } = resolveLocation(dep);
     const isExpanded = expandedCards.has(dep.id);
+    const placementEditKey = sectionEditKey(dep.id, 'placement');
 
     return (
       <div key={dep.id} className="border border-ed-line rounded-xl bg-white overflow-hidden">
@@ -1234,11 +1672,34 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
           </div>
 
-          {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={dep.duplicate_adset_name} adName={name} cardKey={dep.id} />
+          <OriginMeta
+            source={dep.ready_source || ''}
+            timestamp={resolveReadyTimestamp(dep)}
+            fallbackName={name}
+          />
 
-          {/* Admin Edit Panel — always visible when editing (not inside collapsible) */}
-          <EditPanel cardKey={dep.id} id={dep.id} isFlex={false} />
+          {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
+          <PostInSection
+            campaignName={campaignName}
+            adSetName={adSetName}
+            duplicateAdSetName={dep.duplicate_adset_name}
+            adName={name}
+            cardKey={dep.id}
+            onEdit={() => startSectionEdit(dep.id, 'placement', {
+              campaign_id: dep.local_campaign_id || '',
+              ad_set_name: adSetName || '',
+              ad_name: name || '',
+            })}
+            editContent={editingSection === placementEditKey ? (
+              <PlacementEditForm
+                cardKey={dep.id}
+                id={dep.id}
+                isFlex={false}
+                currentAdSetId={dep.local_adset_id || ''}
+                currentDeployment={dep}
+              />
+            ) : null}
+          />
 
           {/* Expand/Collapse toggle */}
           <button
@@ -1279,20 +1740,28 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
 
             {/* Primary Text */}
-            {renderNumberedTexts(
-              dep.primary_texts,
-              `Primary Text \u2014 ${parseCount(dep.primary_texts)} Variation${parseCount(dep.primary_texts) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.',
-              dep.id, 'primary'
-            )}
+            <EditableTextListSection
+              value={dep.primary_texts}
+              sectionLabel={`Primary Text — ${parseCount(dep.primary_texts)} Variation${parseCount(dep.primary_texts) !== 1 ? 's' : ''}`}
+              helper='Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
+              cardKey={dep.id}
+              sectionId="primary"
+              id={dep.id}
+              isFlex={false}
+              field="primary_texts"
+            />
 
             {/* Headline */}
-            {renderNumberedTexts(
-              dep.ad_headlines,
-              `Headline \u2014 ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.',
-              dep.id, 'headline'
-            )}
+            <EditableTextListSection
+              value={dep.ad_headlines}
+              sectionLabel={`Headline — ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`}
+              helper='Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
+              cardKey={dep.id}
+              sectionId="headline"
+              id={dep.id}
+              isFlex={false}
+              field="ad_headlines"
+            />
 
             {/* Notes */}
             <NotesSection notes={dep.notes} cardKey={dep.id} depId={dep.id} />
@@ -1310,14 +1779,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                 </svg>
                 {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
-              </button>
-            )}
-            {!isPoster && editingCard !== dep.id && (
-              <button onClick={() => startEditing(dep.id, dep, false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 hover:bg-[rgba(168,84,59,0.06)] transition-colors"
-              >
-                <EditPencilIcon />
-                Edit
               </button>
             )}
           </div>
@@ -1363,6 +1824,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isDownloadingAll = downloadingAll.has(cardKey);
     const isDownloadingSelected = downloadingSelected.has(cardKey);
     const isExpanded = expandedCards.has(flexId);
+    const placementEditKey = sectionEditKey(flexId, 'placement');
 
     return (
       <div
@@ -1408,11 +1870,35 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </div>
           </div>
 
-          {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Ad Set'} cardKey={flexId} />
+          <OriginMeta
+            source={flexAd.ready_source || ''}
+            timestamp={resolveReadyTimestamp(flexAd, childDeps)}
+            fallbackName={flexAd.name || ''}
+          />
 
-          {/* Admin Edit Panel — always visible when editing (not inside collapsible) */}
-          <EditPanel cardKey={flexId} id={flexAd.id} isFlex />
+          {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
+          <PostInSection
+            campaignName={campaignName}
+            adSetName={adSetName}
+            duplicateAdSetName={flexAd.duplicate_adset_name}
+            adName={flexAd.name || 'Ad Set'}
+            cardKey={flexId}
+            onEdit={() => {
+              const adSet = safeAdSets.find(a => a.id === flexAd.ad_set_id);
+              startSectionEdit(flexId, 'placement', {
+                campaign_id: adSet?.campaign_id || '',
+                ad_set_name: adSet?.name || flexAd.name || '',
+              });
+            }}
+            editContent={editingSection === placementEditKey ? (
+              <PlacementEditForm
+                cardKey={flexId}
+                id={flexAd.id}
+                isFlex
+                currentAdSetId={flexAd.ad_set_id}
+              />
+            ) : null}
+          />
 
           {/* Expand/Collapse toggle */}
           <button
@@ -1508,13 +1994,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                         </button>
                       )}
                       {!isPoster ? (
-                        <input
-                          type="text"
-                          defaultValue={d.ad_name || d.ad?.headline || ''}
-                          onBlur={(e) => saveChildAdName(d, e.target.value)}
-                          className="mt-1 w-full text-[10px] text-ed-ink2 bg-white border border-ed-line rounded-md px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-ed-accent/20"
-                          aria-label="Ad name"
-                        />
+                        <div className="text-[10px] text-ed-ink2 mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
                       ) : (
                         <div className="text-[10px] text-ed-ink2 mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
                       )}
@@ -1524,21 +2004,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </div>
             </div>
 
+            <AdNamesSection flexAd={flexAd} cardKey={cardKey} childDeps={childDeps} />
+
             {/* Primary Text */}
-            {renderNumberedTexts(
-              flexAd.primary_texts,
-              `Primary Text — ${parseCount(flexAd.primary_texts)} Variation${parseCount(flexAd.primary_texts) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.',
-              flexId, 'primary'
-            )}
+            <EditableTextListSection
+              value={flexAd.primary_texts}
+              sectionLabel={`Primary Text — ${parseCount(flexAd.primary_texts)} Variation${parseCount(flexAd.primary_texts) !== 1 ? 's' : ''}`}
+              helper='Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
+              cardKey={flexId}
+              sectionId="primary"
+              id={flexAd.id}
+              isFlex
+              field="primary_texts"
+            />
 
             {/* Headline */}
-            {renderNumberedTexts(
-              flexAd.headlines,
-              `Headline — ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.',
-              flexId, 'headline'
-            )}
+            <EditableTextListSection
+              value={flexAd.headlines}
+              sectionLabel={`Headline — ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`}
+              helper='Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
+              cardKey={flexId}
+              sectionId="headline"
+              id={flexAd.id}
+              isFlex
+              field="headlines"
+            />
 
             {/* Notes */}
             <NotesSection notes={flexAd.notes} cardKey={flexId} depId={flexAd.id} isFlexCard />
@@ -1556,14 +2046,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                 </svg>
                 {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
-              </button>
-            )}
-            {!isPoster && editingCard !== flexId && (
-              <button onClick={() => startEditing(flexId, flexAd, true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 hover:bg-[rgba(168,84,59,0.06)] transition-colors"
-              >
-                <EditPencilIcon />
-                Edit
               </button>
             )}
             {!isPoster && (

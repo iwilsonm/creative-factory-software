@@ -786,8 +786,10 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
     project_id: projectId,
     name: adSetName,
     sort_order: 0,
+    lifecycle_status: 'ready',
+    ready_source: 'creative_director',
+    ready_at: isoTs,
   });
-  await updateAdSet(adSetId, { lifecycle_status: 'ready' });
 
   // Create individual deployments for each ad. Copy (primary_texts, headlines,
   // destination_url, CTA) lives on the deployment itself — flex_ads are no

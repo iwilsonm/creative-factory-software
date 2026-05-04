@@ -22,7 +22,6 @@ import {
   getStagingRejected,
   getAdSet,
   getAdSetsByProject,
-  promoteAdSet,
   regroupAds,
   createAdSetFromDeployments,
   createEmptyAdSet,
@@ -168,6 +167,7 @@ router.put('/:projectId/ad-sets/:adSetId', requireRole('admin', 'manager'), asyn
       'name', 'campaign_id', 'lifecycle_status', 'angle_id',
       'meta_targeting', 'meta_budget_type', 'meta_budget_amount_cents',
       'meta_schedule', 'meta_optimization_goal', 'meta_billing_event',
+      'ready_source', 'ready_at',
       'observation_paused_at', 'observation_paused_total_ms', 'extension_days',
     ];
     const fields = {};
@@ -201,7 +201,11 @@ router.post('/:projectId/ad-sets/:adSetId/move-to-ready', requireRole('admin', '
         error: `Cannot move to Ready from "${adSet.lifecycle_status}" — only draft sets can be moved to Ready.`,
       });
     }
-    await updateAdSet(req.params.adSetId, { lifecycle_status: 'ready' });
+    await updateAdSet(req.params.adSetId, {
+      lifecycle_status: 'ready',
+      ready_source: adSet.ready_source || 'manual_planner',
+      ready_at: adSet.ready_at || new Date().toISOString(),
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -464,7 +468,11 @@ router.post('/:projectId/staging/adsets/:adSetId/promote', requireRole('admin', 
     if (adSet.project_id !== project.id) {
       return res.status(403).json({ error: 'Ad set does not belong to this project' });
     }
-    await promoteAdSet(req.params.adSetId);
+    await updateAdSet(req.params.adSetId, {
+      lifecycle_status: 'ready',
+      ready_source: adSet.ready_source || 'manual_planner',
+      ready_at: adSet.ready_at || new Date().toISOString(),
+    });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

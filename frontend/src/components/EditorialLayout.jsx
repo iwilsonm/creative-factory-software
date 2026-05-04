@@ -238,7 +238,7 @@ function SidebarContent({
           as={Link}
           to="/projects"
         >
-          <FolderIcon /> <NavLabel collapsed={collapsed}>Projects</NavLabel>
+          <FolderIcon /> <NavLabel collapsed={collapsed}>All Projects</NavLabel>
         </NavItem>
       </div>
 

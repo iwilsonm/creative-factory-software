@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, getDailyCostHistoryRange, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects, getAllConductorConfigs, getAllLPAgentConfigs, getCompletedDirectorBatchStats } from '../convexClient.js';
+import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, getDailyCostHistoryRange, getAllScheduledBatchesForCost, getAllProjects, getAllConductorConfigs, getAllLPAgentConfigs, getCompletedDirectorBatchStats } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 // ── Anthropic Claude pricing (per million tokens) ──────────────────────────────
@@ -13,8 +13,6 @@ const ANTHROPIC_RATES = {
 
 // ── OpenAI GPT pricing (per million tokens) ─────────────────────────────────
 // Source: https://platform.openai.com/docs/pricing
-// Note: per-call calculated logging complements the hourly billing API sync.
-// Calculated records use source='calculated', billing API uses source='billing_api'.
 const OPENAI_RATES = {
   'gpt-5.4':            { input: 2.50, output: 10.00 }, // PEF plan 2026-04-21 — Phase 1 LP image-strategy model. Re-verify against the OpenAI dashboard if cost reporting feels off.
   'gpt-5.2':            { input: 1.75, output: 14.00 }, // Verified May 1 2026 against OpenAI's official pricing. Was $2/$8 — output rate corrected from understated $8.
@@ -200,103 +198,10 @@ export async function logOpenAIImageCost(projectId, operation, size, model) {
   }
 }
 
-/**
- * Sync OpenAI costs from the Costs API.
- * Requires openai_admin_key to be configured.
- *
- * @returns {{ synced: boolean, recordCount?: number, reason?: string }}
- */
-export async function syncOpenAICosts() {
-  const adminKey = await getSetting('openai_admin_key');
-  if (!adminKey) {
-    return { synced: false, reason: 'OpenAI Admin API key not configured.' };
-  }
-
-  try {
-    // Fetch last 30 days of cost data
-    const endTime = Math.floor(Date.now() / 1000);
-    const startTime = endTime - (30 * 24 * 60 * 60);
-
-    const url = `https://api.openai.com/v1/organization/costs?start_time=${startTime}&end_time=${endTime}&bucket_width=1d&group_by=line_item&limit=180`;
-
-    const response = await withRetry(async () => {
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${adminKey}` }
-      });
-      if (res.status === 429 || res.status >= 500) {
-        const err = new Error(`OpenAI API ${res.status}`);
-        err.status = res.status;
-        err.headers = Object.fromEntries(res.headers.entries());
-        throw err;
-      }
-      return res;
-    }, { label: '[CostTracker syncOpenAI]', maxRetries: 2 });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      return { synced: false, reason: `OpenAI API returned ${response.status}: ${errText.slice(0, 200)}` };
-    }
-
-    const data = await response.json();
-    const buckets = data.data || [];
-
-    // Delete existing billing_api records in this window
-    const startDate = new Date(startTime * 1000).toISOString().split('T')[0];
-    await deleteCostsBySource('billing_api', startDate);
-
-    let recordCount = 0;
-
-    for (const bucket of buckets) {
-      const periodDate = bucket.start_time
-        ? new Date(bucket.start_time * 1000).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0];
-
-      const results = bucket.results || [];
-
-      for (const result of results) {
-        const lineItem = result.line_item || result.object || '';
-        const amount = result.amount?.value || 0;
-
-        if (amount <= 0) continue;
-
-        // Map line items to model-specific billing operations
-        let operation = 'openai_billing';
-        const lowerItem = lineItem.toLowerCase();
-        if (lowerItem.includes('gpt-5')) operation = 'openai_billing_gpt5';
-        else if (lowerItem.includes('gpt-4.1-mini') || lowerItem.includes('gpt-4o-mini')) operation = 'openai_billing_gpt4_mini';
-        else if (lowerItem.includes('gpt-4')) operation = 'openai_billing_gpt4';
-        else if (lowerItem.includes('o3') || lowerItem.includes('deep-research')) operation = 'openai_billing_research';
-
-        await logCost({
-          id: uuidv4(),
-          project_id: null, // OpenAI costs are org-wide, not project-scoped by default
-          service: 'openai',
-          operation,
-          cost_usd: amount,
-          rate_used: null,
-          image_count: null,
-          resolution: null,
-          source: 'billing_api',
-          period_date: periodDate
-        });
-
-        recordCount++;
-      }
-    }
-
-    console.log(`[CostTracker] OpenAI sync complete: ${recordCount} cost records.`);
-    return { synced: true, recordCount };
-
-  } catch (err) {
-    console.error('[CostTracker] OpenAI sync failed:', err.message);
-    return { synced: false, reason: err.message };
-  }
-}
-
-// Known-good fallback rates (Gemini 3 Pro Image Preview, Feb 2026).
+// Known-good fallback rates (Gemini 3.1 Flash Image Preview, May 2026).
 // These are used when the auto-scraper can't reliably parse Google's pricing page,
 // and as sanity bounds to reject obviously wrong scraped values.
-const KNOWN_RATES = { rate_1k: 0.134, rate_2k: 0.134, rate_4k: 0.24 };
+const KNOWN_RATES = { rate_1k: 0.067, rate_2k: 0.101, rate_4k: 0.151 };
 // Rates should be between $0.001 and $2.00 per image. Anything outside this
 // range is almost certainly a parsing error.
 const RATE_MIN = 0.001;
@@ -372,43 +277,76 @@ export async function refreshGeminiRates() {
 
 /**
  * Parse Gemini image generation rates from Google's pricing page HTML.
- * Looks specifically for Gemini 3 Pro Image pricing. Returns null if
+ * Looks specifically for Gemini 3.1 Flash Image pricing. Returns null if
  * parsing fails — the caller handles fallback to known-good defaults.
  */
 export function parseGeminiImageRates(html) {
   try {
-    // Strategy: Look for "Gemini 3 Pro Image" or similar section, then find
-    // nearby dollar amounts that look like per-image rates (typically $0.01–$1.00)
-    // Match dollar amounts that have a decimal and are less than $10
+    if (typeof html !== 'string' || !html.trim()) return null;
+
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
     const sectionPatterns = [
+      /[Gg]emini\s+3(?:\.\d+)?\s+[Ff]lash\s+[Ii]mage\s+[Pp]review/,
       /[Gg]emini.{0,5}3.{0,5}[Pp]ro.{0,10}[Ii]mage/,
       /[Ii]magen.{0,5}[34]/,
       /[Ii]mage.{0,10}[Gg]eneration/
     ];
 
     for (const sectionPattern of sectionPatterns) {
-      const sectionMatch = html.match(sectionPattern);
+      const sectionMatch = text.match(sectionPattern);
       if (!sectionMatch) continue;
 
-      // Extract a chunk of HTML after the section header (pricing is usually nearby)
       const startIdx = sectionMatch.index;
-      const chunk = html.slice(startIdx, startIdx + 3000);
+      const chunk = text.slice(startIdx, startIdx + 6000);
 
-      // Find all dollar amounts in this chunk
-      const priceMatches = [...chunk.matchAll(/\$(\d+\.\d{2,6})/g)];
+      const firstDollarIdx = chunk.indexOf('$');
+      const rawStandardIdx = chunk.search(/\bStandard\b/i);
+      const standardIdx = rawStandardIdx >= 0 && (firstDollarIdx < 0 || rawStandardIdx < firstDollarIdx)
+        ? rawStandardIdx
+        : -1;
+      const batchIdx = standardIdx >= 0
+        ? chunk.slice(standardIdx + 1).search(/\bBatch\b/i)
+        : -1;
+      const standardChunk = standardIdx >= 0
+        ? chunk.slice(standardIdx, batchIdx >= 0 ? standardIdx + 1 + batchIdx : undefined)
+        : chunk;
+
+      const byResolution = {};
+      for (const match of standardChunk.matchAll(/\$(\d+(?:\.\d+)?)\s*per\s*(0\.5K|1K|2K|4K)\s*image/gi)) {
+        const price = parseFloat(match[1]);
+        const resolution = match[2].toUpperCase();
+        if (price >= RATE_MIN && price <= RATE_MAX && resolution !== '0.5K') {
+          byResolution[resolution] = price;
+        }
+      }
+
+      if (byResolution['1K'] && byResolution['2K'] && byResolution['4K']) {
+        return {
+          rate_1k: byResolution['1K'],
+          rate_2k: byResolution['2K'],
+          rate_4k: byResolution['4K'],
+        };
+      }
+
+      // Legacy fallback for older/simpler test fixtures and pricing snippets
+      // that list generic standard/HD per-image prices without resolution labels.
+      const priceMatches = [...standardChunk.matchAll(/\$(\d+\.\d{2,6})/g)];
       const prices = priceMatches
         .map(m => parseFloat(m[1]))
         .filter(p => p >= RATE_MIN && p <= RATE_MAX);
 
-      // We need at least 2 distinct prices (standard vs batch, or resolution tiers)
       if (prices.length >= 2) {
-        // Deduplicate and sort
         const unique = [...new Set(prices)].sort((a, b) => a - b);
         if (unique.length >= 2) {
-          // Typical pattern: lower price = 1K/2K, higher price = 4K
           return {
             rate_1k: unique[0],
-            rate_2k: unique[0], // 1K and 2K are same price for Gemini 3 Pro
+            rate_2k: unique[0],
             rate_4k: unique[unique.length - 1]
           };
         }

@@ -42,7 +42,7 @@ export default function Layout({ children }) {
   if (user?.role === 'admin' || user?.role === 'manager') {
     navLinks.push({ to: '/', label: 'Dashboard' });
   }
-  navLinks.push({ to: '/projects', label: 'Projects' });
+  navLinks.push({ to: '/projects', label: 'All Projects' });
   if (user?.role === 'admin') {
     navLinks.push({ to: '/settings', label: 'Settings' });
   }

@@ -1268,6 +1268,8 @@ function convexAdSetToRow(a) {
     meta_billing_event: a.meta_billing_event || null,
     posted_at: a.posted_at || null,
     meta_adset_id: a.meta_adset_id || null,
+    ready_source: a.ready_source || null,
+    ready_at: a.ready_at || null,
     // Phase 2B
     meta_campaign_id: a.meta_campaign_id || null,
     meta_post_error: a.meta_post_error || null,
@@ -1302,7 +1304,7 @@ export async function getAdSetsByProjectAndLifecycle(projectId, lifecycleStatus)
   return adSets.map(convexAdSetToRow);
 }
 
-export async function createAdSet({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
+export async function createAdSet({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, ready_source, ready_at, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
   const now = new Date().toISOString();
   const result = await mutationWithRetry(api.adSets.create, compactConvexWrite({
     externalId: id,
@@ -1313,6 +1315,8 @@ export async function createAdSet({ id, campaign_id, project_id, name, sort_orde
     // Phase 1 fields (all optional)
     angle_id,
     lifecycle_status,
+    ready_source,
+    ready_at,
     meta_targeting,
     meta_budget_type,
     meta_budget_amount_cents,
@@ -1326,7 +1330,7 @@ export async function createAdSet({ id, campaign_id, project_id, name, sort_orde
   return result;
 }
 
-export async function createAdSetFromDeployments({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, deployment_ids, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
+export async function createAdSetFromDeployments({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, ready_source, ready_at, deployment_ids, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
   const now = new Date().toISOString();
   const result = await mutationWithRetry(api.adSets.createFromDeployments, compactConvexWrite({
     externalId: id,
@@ -1337,6 +1341,8 @@ export async function createAdSetFromDeployments({ id, campaign_id, project_id, 
     deployment_ids,
     angle_id,
     lifecycle_status,
+    ready_source,
+    ready_at,
     meta_targeting,
     meta_budget_type,
     meta_budget_amount_cents,

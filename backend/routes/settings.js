@@ -12,10 +12,9 @@ router.use(requireAuth, requireRole('admin'));
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
 const CONFIGURED_SECRET_PLACEHOLDER = 'Configured';
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token', 'meta_app_secret', 'google_service_account_json'];
+const API_KEY_KEYS = ['openai_api_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token', 'meta_app_secret', 'google_service_account_json'];
 const ALLOWED_SETTING_KEYS = [
   'openai_api_key',
-  'openai_admin_key',
   'gemini_api_key',
   'anthropic_api_key',
   'meta_app_id',

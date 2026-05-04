@@ -71,7 +71,7 @@ export default function Projects() {
             </div>
           )}
           <h1 className="font-serif text-[38px] leading-[1.05] tracking-[-0.02em] text-ed-ink font-[420]">
-            Projects
+            All Projects
           </h1>
         </div>
         {canCreate && (
