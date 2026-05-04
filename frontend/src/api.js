@@ -893,8 +893,20 @@ export const api = {
   // ──���─────────────────────────────────────────────
   getUnlinkedAdSets: (projectId) =>
     request(`/projects/${projectId}/reconciliation/unlinked-adsets`),
+  getArchivedUnlinkedAdSets: (projectId) =>
+    request(`/projects/${projectId}/reconciliation/archived-unlinked-adsets`),
   getUnlinkedAds: (projectId, metaAdsetId) =>
     request(`/projects/${projectId}/reconciliation/unlinked-ads?metaAdsetId=${metaAdsetId}`),
+  archiveUnlinkedAdSets: (projectId, adSets) =>
+    request(`/projects/${projectId}/reconciliation/archive-unlinked-adsets`, {
+      method: 'POST',
+      body: JSON.stringify({ ad_sets: adSets }),
+    }),
+  unarchiveUnlinkedAdSets: (projectId, metaAdsetIds) =>
+    request(`/projects/${projectId}/reconciliation/unarchive-unlinked-adsets`, {
+      method: 'POST',
+      body: JSON.stringify({ meta_adset_ids: metaAdsetIds }),
+    }),
   linkAdSet: (projectId, data) =>
     request(`/projects/${projectId}/reconciliation/link-adset`, { method: 'POST', body: JSON.stringify(data) }),
   linkAd: (projectId, data) =>

@@ -610,6 +610,25 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
 
+  reconciliation_archives: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    meta_entity_type: v.string(),
+    meta_adset_id: v.string(),
+    name: v.optional(v.string()),
+    campaign_name: v.optional(v.string()),
+    status: v.optional(v.string()),
+    snapshot_json: v.optional(v.string()),
+    archived_at: v.string(),
+    archived_by: v.string(),
+    unarchived_at: v.optional(v.string()),
+    unarchived_by: v.optional(v.string()),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_meta", ["project_id", "meta_adset_id"]),
+
   users: defineTable({
     externalId: v.string(),
     username: v.string(),

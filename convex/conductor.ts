@@ -846,3 +846,107 @@ export const getReconciliationLogsByProject = query({
       .collect();
   },
 });
+
+// =============================================
+// reconciliation_archives — hidden unlinked Meta entities
+// =============================================
+
+const archiveEntryValidator = v.object({
+  meta_adset_id: v.string(),
+  name: v.optional(v.string()),
+  campaign_name: v.optional(v.string()),
+  status: v.optional(v.string()),
+  snapshot_json: v.optional(v.string()),
+});
+
+export const getArchivedUnlinkedAdSetsByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("reconciliation_archives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return rows
+      .filter((row) => row.meta_entity_type === "ad_set" && !row.unarchived_at)
+      .sort((a, b) => (a.archived_at < b.archived_at ? 1 : -1));
+  },
+});
+
+export const archiveUnlinkedAdSets = mutation({
+  args: {
+    projectId: v.string(),
+    archived_by: v.string(),
+    ad_sets: v.array(archiveEntryValidator),
+  },
+  handler: async (ctx, args) => {
+    const now = new Date().toISOString();
+    let archived = 0;
+    for (const entry of args.ad_sets) {
+      const metaAdSetId = entry.meta_adset_id.trim();
+      if (!metaAdSetId) continue;
+      const existing = await ctx.db
+        .query("reconciliation_archives")
+        .withIndex("by_project_and_meta", (q) =>
+          q.eq("project_id", args.projectId).eq("meta_adset_id", metaAdSetId)
+        )
+        .first();
+      const snapshotFields: Record<string, any> = {
+        meta_entity_type: "ad_set",
+        archived_at: now,
+        archived_by: args.archived_by,
+        updated_at: now,
+      };
+      if (entry.name !== undefined) snapshotFields.name = entry.name;
+      if (entry.campaign_name !== undefined) snapshotFields.campaign_name = entry.campaign_name;
+      if (entry.status !== undefined) snapshotFields.status = entry.status;
+      if (entry.snapshot_json !== undefined) snapshotFields.snapshot_json = entry.snapshot_json;
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          ...snapshotFields,
+          unarchived_at: undefined,
+          unarchived_by: undefined,
+        });
+      } else {
+        await ctx.db.insert("reconciliation_archives", {
+          externalId: crypto.randomUUID(),
+          project_id: args.projectId,
+          meta_adset_id: metaAdSetId,
+          ...snapshotFields,
+        });
+      }
+      archived += 1;
+    }
+    return { archived };
+  },
+});
+
+export const unarchiveUnlinkedAdSets = mutation({
+  args: {
+    projectId: v.string(),
+    unarchived_by: v.string(),
+    meta_adset_ids: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = new Date().toISOString();
+    let unarchived = 0;
+    for (const rawId of args.meta_adset_ids) {
+      const metaAdSetId = String(rawId || "").trim();
+      if (!metaAdSetId) continue;
+      const existing = await ctx.db
+        .query("reconciliation_archives")
+        .withIndex("by_project_and_meta", (q) =>
+          q.eq("project_id", args.projectId).eq("meta_adset_id", metaAdSetId)
+        )
+        .first();
+      if (!existing || existing.unarchived_at) continue;
+      await ctx.db.patch(existing._id, {
+        unarchived_at: now,
+        unarchived_by: args.unarchived_by,
+        updated_at: now,
+      });
+      unarchived += 1;
+    }
+    return { unarchived };
+  },
+});

@@ -15,6 +15,48 @@ import { getAdSetsWithInsights, getAdsWithInsights } from '../services/metaAnaly
 const router = Router();
 router.use(requireAuth, requireRole('admin', 'manager'));
 
+function actorName(user) {
+  return user?.displayName || user?.username || 'Unknown user';
+}
+
+function normalizeArchiveEntries(body) {
+  const raw = Array.isArray(body?.ad_sets)
+    ? body.ad_sets
+    : Array.isArray(body?.items)
+      ? body.items
+      : Array.isArray(body?.metaAdsetIds)
+        ? body.metaAdsetIds.map((id) => ({ meta_adset_id: id }))
+        : [];
+
+  const entries = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const metaAdSetId = String(item?.meta_adset_id || item?.metaAdsetId || item?.id || '').trim();
+    if (!metaAdSetId || seen.has(metaAdSetId)) continue;
+    seen.add(metaAdSetId);
+    const entry = {
+      meta_adset_id: metaAdSetId,
+      snapshot_json: JSON.stringify(item || { meta_adset_id: metaAdSetId }),
+    };
+    if (item?.name) entry.name = String(item.name);
+    if (item?.campaign_name) entry.campaign_name = String(item.campaign_name);
+    if (item?.status) entry.status = String(item.status);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function normalizeMetaAdSetIds(body) {
+  const raw = Array.isArray(body?.meta_adset_ids)
+    ? body.meta_adset_ids
+    : Array.isArray(body?.metaAdsetIds)
+      ? body.metaAdsetIds
+      : Array.isArray(body?.ad_sets)
+        ? body.ad_sets.map((item) => item?.meta_adset_id || item?.metaAdsetId || item?.id)
+        : [];
+  return [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))];
+}
+
 // GET /:projectId/reconciliation/unlinked-adsets
 // Returns Meta ad sets that have no matching CF ad set (not linked).
 router.get('/:projectId/reconciliation/unlinked-adsets', async (req, res) => {
@@ -30,13 +72,16 @@ router.get('/:projectId/reconciliation/unlinked-adsets', async (req, res) => {
       getAdSetsWithInsights(project.meta_access_token, project.meta_account_id, { datePreset: 'last_30d' }),
       getAdSetsByProject(projectId),
     ]);
+    const archivedRows = await convexClient.query(api.conductor.getArchivedUnlinkedAdSetsByProject, { projectId });
 
     const linkedMetaIds = new Set(
       cfAdSets.filter(a => a.meta_adset_id).map(a => a.meta_adset_id)
     );
+    const archivedMetaIds = new Set((archivedRows || []).map((row) => row.meta_adset_id));
 
     const unlinked = metaAdSets
       .filter(m => !linkedMetaIds.has(m.id))
+      .filter(m => !archivedMetaIds.has(m.id))
       .map(m => ({
         meta_adset_id: m.id,
         name: m.name,
@@ -50,6 +95,96 @@ router.get('/:projectId/reconciliation/unlinked-adsets', async (req, res) => {
       }));
 
     res.json({ unlinked });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /:projectId/reconciliation/archived-unlinked-adsets
+// Returns archived unlinked Meta ad sets hidden from the active reconciliation list.
+router.get('/:projectId/reconciliation/archived-unlinked-adsets', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const project = await getProjectRawForMeta(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const archived = await convexClient.query(api.conductor.getArchivedUnlinkedAdSetsByProject, { projectId });
+    res.json({ archived: archived || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:projectId/reconciliation/archive-unlinked-adsets
+// Body: { ad_sets: [{ meta_adset_id, name?, campaign_name?, status? }] }
+router.post('/:projectId/reconciliation/archive-unlinked-adsets', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const project = await getProjectRawForMeta(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const entries = normalizeArchiveEntries(req.body);
+    if (entries.length === 0) {
+      return res.status(400).json({ error: 'At least one Meta ad set is required.' });
+    }
+
+    const archivedBy = actorName(req.user);
+    const result = await convexClient.mutation(api.conductor.archiveUnlinkedAdSets, {
+      projectId,
+      archived_by: archivedBy,
+      ad_sets: entries,
+    });
+
+    await Promise.all(entries.map((entry) => createReconciliationLog({
+      externalId: randomUUID(),
+      project_id: projectId,
+      action: 'archive_unlinked_adset',
+      cf_entity_id: entry.meta_adset_id,
+      cf_entity_type: 'meta_ad_set',
+      meta_entity_id: entry.meta_adset_id,
+      linked_by: archivedBy,
+      notes: entry.name || '',
+      created_at: new Date().toISOString(),
+    })));
+
+    res.json({ success: true, archived: result?.archived || entries.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:projectId/reconciliation/unarchive-unlinked-adsets
+// Body: { meta_adset_ids: string[] }
+router.post('/:projectId/reconciliation/unarchive-unlinked-adsets', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const project = await getProjectRawForMeta(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const metaAdSetIds = normalizeMetaAdSetIds(req.body);
+    if (metaAdSetIds.length === 0) {
+      return res.status(400).json({ error: 'At least one Meta ad set is required.' });
+    }
+
+    const unarchivedBy = actorName(req.user);
+    const result = await convexClient.mutation(api.conductor.unarchiveUnlinkedAdSets, {
+      projectId,
+      unarchived_by: unarchivedBy,
+      meta_adset_ids: metaAdSetIds,
+    });
+
+    await Promise.all(metaAdSetIds.map((metaAdSetId) => createReconciliationLog({
+      externalId: randomUUID(),
+      project_id: projectId,
+      action: 'unarchive_unlinked_adset',
+      cf_entity_id: metaAdSetId,
+      cf_entity_type: 'meta_ad_set',
+      meta_entity_id: metaAdSetId,
+      linked_by: unarchivedBy,
+      notes: '',
+      created_at: new Date().toISOString(),
+    })));
+
+    res.json({ success: true, unarchived: result?.unarchived || 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

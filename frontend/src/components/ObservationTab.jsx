@@ -66,8 +66,15 @@ export default function ObservationTab({ projectId, project }) {
 
   // Phase 9 — Unobserved (unlinked) Meta ads reconciliation
   const [unlinkedAdSets, setUnlinkedAdSets] = useState([]);
+  const [archivedUnlinkedAdSets, setArchivedUnlinkedAdSets] = useState([]);
   const [unlinkedLoading, setUnlinkedLoading] = useState(false);
   const [showUnlinked, setShowUnlinked] = useState(true);
+  const [showArchivedUnlinked, setShowArchivedUnlinked] = useState(false);
+  const [selectedUnlinkedIds, setSelectedUnlinkedIds] = useState([]);
+  const [selectedArchivedUnlinkedIds, setSelectedArchivedUnlinkedIds] = useState([]);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archivingUnlinked, setArchivingUnlinked] = useState(false);
+  const [unarchivingUnlinked, setUnarchivingUnlinked] = useState(false);
   const [linkTarget, setLinkTarget] = useState(null); // { metaAdsetId, metaCampaignId, postedAt }
   const [linkableAdSets, setLinkableAdSets] = useState([]);
   const [linking, setLinking] = useState(false);
@@ -163,12 +170,104 @@ export default function ObservationTab({ projectId, project }) {
   const loadUnlinked = useCallback(async () => {
     setUnlinkedLoading(true);
     try {
-      const res = await api.getUnlinkedAdSets(projectId);
-      setUnlinkedAdSets(res.unlinked || []);
-    } catch { setUnlinkedAdSets([]); }
-    finally { setUnlinkedLoading(false); }
+      const [activeResult, archivedResult] = await Promise.allSettled([
+        api.getUnlinkedAdSets(projectId),
+        api.getArchivedUnlinkedAdSets(projectId),
+      ]);
+      if (activeResult.status === 'fulfilled') {
+        setUnlinkedAdSets(activeResult.value.unlinked || []);
+      } else {
+        setUnlinkedAdSets([]);
+      }
+      if (archivedResult.status === 'fulfilled') {
+        setArchivedUnlinkedAdSets(archivedResult.value.archived || []);
+      } else {
+        setArchivedUnlinkedAdSets([]);
+      }
+    } finally {
+      setUnlinkedLoading(false);
+    }
   }, [projectId]);
   useEffect(() => { loadUnlinked(); }, [loadUnlinked]);
+
+  useEffect(() => {
+    const visible = new Set(unlinkedAdSets.map((row) => row.meta_adset_id));
+    setSelectedUnlinkedIds((prev) => prev.filter((id) => visible.has(id)));
+  }, [unlinkedAdSets]);
+
+  useEffect(() => {
+    const visible = new Set(archivedUnlinkedAdSets.map((row) => row.meta_adset_id));
+    setSelectedArchivedUnlinkedIds((prev) => prev.filter((id) => visible.has(id)));
+  }, [archivedUnlinkedAdSets]);
+
+  const selectedUnlinkedRows = useMemo(() => {
+    const selected = new Set(selectedUnlinkedIds);
+    return unlinkedAdSets.filter((row) => selected.has(row.meta_adset_id));
+  }, [selectedUnlinkedIds, unlinkedAdSets]);
+
+  const allUnlinkedSelected = unlinkedAdSets.length > 0 && selectedUnlinkedIds.length === unlinkedAdSets.length;
+  const allArchivedUnlinkedSelected = archivedUnlinkedAdSets.length > 0
+    && selectedArchivedUnlinkedIds.length === archivedUnlinkedAdSets.length;
+
+  const toggleUnlinkedSelection = (id) => {
+    setSelectedUnlinkedIds((prev) => prev.includes(id)
+      ? prev.filter((item) => item !== id)
+      : [...prev, id]);
+  };
+
+  const toggleArchivedUnlinkedSelection = (id) => {
+    setSelectedArchivedUnlinkedIds((prev) => prev.includes(id)
+      ? prev.filter((item) => item !== id)
+      : [...prev, id]);
+  };
+
+  const toggleSelectAllUnlinked = () => {
+    setSelectedUnlinkedIds(allUnlinkedSelected ? [] : unlinkedAdSets.map((row) => row.meta_adset_id));
+  };
+
+  const toggleSelectAllArchivedUnlinked = () => {
+    setSelectedArchivedUnlinkedIds(allArchivedUnlinkedSelected ? [] : archivedUnlinkedAdSets.map((row) => row.meta_adset_id));
+  };
+
+  const handleArchiveSelectedUnlinked = async () => {
+    if (selectedUnlinkedRows.length === 0) return;
+    setArchivingUnlinked(true);
+    try {
+      await api.archiveUnlinkedAdSets(projectId, selectedUnlinkedRows.map((row) => ({
+        meta_adset_id: row.meta_adset_id,
+        name: row.name,
+        campaign_name: row.campaign_name,
+        status: row.status,
+        created_time: row.created_time,
+        impressions: row.impressions,
+        spend: row.spend,
+      })));
+      toast.success(`Archived ${selectedUnlinkedRows.length} unobserved ad set${selectedUnlinkedRows.length === 1 ? '' : 's'}`);
+      setArchiveConfirmOpen(false);
+      setSelectedUnlinkedIds([]);
+      await loadUnlinked();
+    } catch (err) {
+      toast.error(err.message || 'Archive failed');
+    } finally {
+      setArchivingUnlinked(false);
+    }
+  };
+
+  const handleUnarchiveUnlinked = async (ids = selectedArchivedUnlinkedIds) => {
+    const metaAdSetIds = [...new Set(ids)].filter(Boolean);
+    if (metaAdSetIds.length === 0) return;
+    setUnarchivingUnlinked(true);
+    try {
+      await api.unarchiveUnlinkedAdSets(projectId, metaAdSetIds);
+      toast.success(`Restored ${metaAdSetIds.length} unobserved ad set${metaAdSetIds.length === 1 ? '' : 's'}`);
+      setSelectedArchivedUnlinkedIds((prev) => prev.filter((id) => !metaAdSetIds.includes(id)));
+      await loadUnlinked();
+    } catch (err) {
+      toast.error(err.message || 'Unarchive failed');
+    } finally {
+      setUnarchivingUnlinked(false);
+    }
+  };
 
   const openLinkPicker = (metaAdSet) => {
     setLinkTarget(metaAdSet);
@@ -445,7 +544,7 @@ export default function ObservationTab({ projectId, project }) {
       </div>
 
       {/* Phase 9 — Unobserved Ads (Meta ad sets not linked to CF) */}
-      {unlinkedAdSets.length > 0 && (
+      {(unlinkedLoading || unlinkedAdSets.length > 0 || archivedUnlinkedAdSets.length > 0) && (
         <div className="ed-card">
           <button
             onClick={() => setShowUnlinked(v => !v)}
@@ -465,33 +564,188 @@ export default function ObservationTab({ projectId, project }) {
             </svg>
           </button>
           {showUnlinked && (
-            <div className="px-5 pb-4 space-y-2">
+            <div className="px-5 pb-4 space-y-3">
               <p className="text-[11px] text-ed-ink3 mb-3">
-                These Meta ad sets exist in your ad account but aren't linked to any ad set in this system. Link them to start observation tracking.
+                These Meta ad sets are not linked to Creative Factory. Link them to start observation, or archive rows you do not want to track.
               </p>
-              {unlinkedAdSets.map(m => (
-                <div key={m.meta_adset_id} className="flex items-center justify-between p-3 rounded-lg bg-ed-surface border border-ed-line">
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-medium text-ed-ink truncate">{m.name}</p>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${m.status === 'ACTIVE' ? 'bg-ed-green/10 text-ed-green' : 'bg-ed-bg text-ed-ink3'}`}>
-                        {m.status}
-                      </span>
-                      {m.campaign_name && <span className="text-[10px] text-ed-ink3">{m.campaign_name}</span>}
-                      {m.created_time && <span className="text-[10px] text-ed-ink3">{new Date(m.created_time).toLocaleDateString()}</span>}
-                      {Number(m.spend) > 0 && <span className="text-[10px] text-ed-ink3">${Number(m.spend).toFixed(2)} spent</span>}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => openLinkPicker(m)}
-                    className="shrink-0 text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 px-3 py-1.5 rounded-md border border-ed-accent/20 hover:bg-ed-accent/5 transition-colors"
-                  >
-                    Link
-                  </button>
+              {unlinkedLoading && unlinkedAdSets.length === 0 ? (
+                <div className="p-4 rounded-lg bg-ed-surface border border-ed-line text-[12px] text-ed-ink3 text-center">
+                  Loading unobserved Meta ad sets...
                 </div>
-              ))}
+              ) : unlinkedAdSets.length === 0 ? (
+                <div className="p-4 rounded-lg bg-ed-surface border border-ed-line text-[12px] text-ed-ink3 text-center">
+                  No active unobserved Meta ad sets.
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ed-line bg-ed-bg/70 px-3 py-2">
+                    <label className="inline-flex items-center gap-2 text-[12px] text-ed-ink2">
+                      <input
+                        type="checkbox"
+                        checked={allUnlinkedSelected}
+                        onChange={toggleSelectAllUnlinked}
+                        className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
+                      />
+                      Select all
+                    </label>
+                    <span className="text-[11px] text-ed-ink3">
+                      {selectedUnlinkedIds.length} selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setArchiveConfirmOpen(true)}
+                      disabled={selectedUnlinkedIds.length === 0 || archivingUnlinked}
+                      className="ml-auto text-[11px] font-medium px-3 py-1.5 rounded-md border border-amber-500/30 text-amber-700 hover:bg-amber-500/10 disabled:opacity-45 disabled:cursor-not-allowed"
+                    >
+                      Archive selected
+                    </button>
+                  </div>
+                  {unlinkedAdSets.map(m => (
+                    <div key={m.meta_adset_id} className="flex items-center gap-3 p-3 rounded-lg bg-ed-surface border border-ed-line">
+                      <input
+                        type="checkbox"
+                        checked={selectedUnlinkedIds.includes(m.meta_adset_id)}
+                        onChange={() => toggleUnlinkedSelection(m.meta_adset_id)}
+                        className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
+                        aria-label={`Select ${m.name || 'unobserved Meta ad set'}`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-medium text-ed-ink truncate">{m.name}</p>
+                        <div className="flex flex-wrap items-center gap-3 mt-0.5">
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${m.status === 'ACTIVE' ? 'bg-ed-green/10 text-ed-green' : 'bg-ed-bg text-ed-ink3'}`}>
+                            {m.status}
+                          </span>
+                          {m.campaign_name && <span className="text-[10px] text-ed-ink3">{m.campaign_name}</span>}
+                          {m.created_time && <span className="text-[10px] text-ed-ink3">{new Date(m.created_time).toLocaleDateString()}</span>}
+                          {Number(m.spend) > 0 && <span className="text-[10px] text-ed-ink3">${Number(m.spend).toFixed(2)} spent</span>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => openLinkPicker(m)}
+                        className="shrink-0 text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 px-3 py-1.5 rounded-md border border-ed-accent/20 hover:bg-ed-accent/5 transition-colors"
+                      >
+                        Link
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              <div className="pt-2 border-t border-ed-line/70">
+                <button
+                  type="button"
+                  onClick={() => setShowArchivedUnlinked((v) => !v)}
+                  className="w-full flex items-center justify-between py-2 text-left"
+                >
+                  <span className="inline-flex items-center gap-2 text-[13px] font-medium text-ed-ink">
+                    Archived Unobserved Ads
+                    <span className="text-[11px] text-ed-ink3 bg-ed-bg px-2 py-0.5 rounded-full">{archivedUnlinkedAdSets.length}</span>
+                  </span>
+                  <svg className={`w-4 h-4 text-ed-ink3 transition-transform ${showArchivedUnlinked ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showArchivedUnlinked && (
+                  <div className="space-y-3 pt-2">
+                    <p className="text-[11px] text-ed-ink3">
+                      Archived unobserved Meta ad sets are hidden from the active list until restored.
+                    </p>
+                    {archivedUnlinkedAdSets.length === 0 ? (
+                      <div className="p-4 rounded-lg bg-ed-surface border border-ed-line text-[12px] text-ed-ink3 text-center">
+                        No archived unobserved Meta ad sets.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ed-line bg-ed-bg/70 px-3 py-2">
+                          <label className="inline-flex items-center gap-2 text-[12px] text-ed-ink2">
+                            <input
+                              type="checkbox"
+                              checked={allArchivedUnlinkedSelected}
+                              onChange={toggleSelectAllArchivedUnlinked}
+                              className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
+                            />
+                            Select all
+                          </label>
+                          <span className="text-[11px] text-ed-ink3">
+                            {selectedArchivedUnlinkedIds.length} selected
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleUnarchiveUnlinked()}
+                            disabled={selectedArchivedUnlinkedIds.length === 0 || unarchivingUnlinked}
+                            className="ml-auto text-[11px] font-medium px-3 py-1.5 rounded-md border border-ed-accent/25 text-ed-accent hover:bg-ed-accent/5 disabled:opacity-45 disabled:cursor-not-allowed"
+                          >
+                            {unarchivingUnlinked ? 'Restoring...' : 'Unarchive selected'}
+                          </button>
+                        </div>
+                        {archivedUnlinkedAdSets.map(m => (
+                          <div key={m.meta_adset_id} className="flex items-center gap-3 p-3 rounded-lg bg-ed-surface border border-ed-line">
+                            <input
+                              type="checkbox"
+                              checked={selectedArchivedUnlinkedIds.includes(m.meta_adset_id)}
+                              onChange={() => toggleArchivedUnlinkedSelection(m.meta_adset_id)}
+                              className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
+                              aria-label={`Select archived ${m.name || 'Meta ad set'}`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[13px] font-medium text-ed-ink truncate">{m.name || m.meta_adset_id}</p>
+                              <div className="flex flex-wrap items-center gap-3 mt-0.5">
+                                {m.status && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-ed-bg text-ed-ink3">{m.status}</span>}
+                                {m.campaign_name && <span className="text-[10px] text-ed-ink3">{m.campaign_name}</span>}
+                                {m.archived_at && <span className="text-[10px] text-ed-ink3">Archived {new Date(m.archived_at).toLocaleDateString()}</span>}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleUnarchiveUnlinked([m.meta_adset_id])}
+                              disabled={unarchivingUnlinked}
+                              className="shrink-0 text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 px-3 py-1.5 rounded-md border border-ed-accent/20 hover:bg-ed-accent/5 transition-colors disabled:opacity-45"
+                            >
+                              Unarchive
+                            </button>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
+        </div>
+      )}
+
+      {archiveConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setArchiveConfirmOpen(false)}>
+          <div className="w-full max-w-md rounded-xl bg-ed-surface border border-ed-line shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-ed-line">
+              <h3 className="text-[15px] font-serif font-medium text-ed-ink">Archive unobserved ad sets?</h3>
+              <p className="text-[12px] text-ed-ink3 mt-1">
+                This only hides them from this list. It does not change anything in Meta.
+              </p>
+            </div>
+            <div className="px-5 py-4 text-[12px] text-ed-ink2">
+              Archive {selectedUnlinkedRows.length} selected Meta ad set{selectedUnlinkedRows.length === 1 ? '' : 's'}?
+            </div>
+            <div className="px-5 py-3 border-t border-ed-line flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setArchiveConfirmOpen(false)}
+                disabled={archivingUnlinked}
+                className="ed-ghost text-[12px] px-3 py-1.5"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveSelectedUnlinked}
+                disabled={archivingUnlinked || selectedUnlinkedRows.length === 0}
+                className="text-[12px] font-medium px-3 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {archivingUnlinked ? 'Archiving...' : 'Archive selected'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
