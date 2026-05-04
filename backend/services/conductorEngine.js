@@ -977,6 +977,7 @@ const TEST_RUN_MAX_ROUNDS = 5;
 const TEST_RUN_REFILL_MULTIPLIER = 2;
 const TEST_RUN_ORCHESTRATION_FAILURE_STATUS = 'orchestration_failed';
 const TEST_RUN_GEMINI_WAIT_MS = 30 * 60 * 1000;
+const TEST_RUN_SCORING_STALE_MS = 10 * 60 * 1000;
 const TEST_RUN_ROUND_CAP_TERMINAL_STATUS = 'failed_under_threshold_after_round_cap';
 const DIRECTOR_SCORE_THRESHOLD = 7;
 const TEST_RUN_CANCELLED_STATUS = 'cancelled';
@@ -1018,6 +1019,23 @@ function isGeminiBackgroundWaitFailure(run) {
   return run?.status === 'failed'
     && (failure.includes('Gemini batch timed out after 30 minutes')
       || failure.includes('Gemini is still generating images after 30 minutes'));
+}
+
+function isRecoverableScoringTestRun(run) {
+  if (run?.status !== 'scoring') return false;
+  if (isTestRunCancelled(run) || isRunTerminallyDeployed(run)) return false;
+
+  // Legacy stuck runs were claimed for scoring while still carrying the prior
+  // waiting_on_gemini terminal status. These are safe to recover because the
+  // scorer never wrote its own claim timestamp.
+  if (!run.scoring_started_at && run.terminal_status === 'waiting_on_gemini') {
+    return true;
+  }
+
+  const scoringStartedAt = Number(run.scoring_started_at);
+  return Number.isFinite(scoringStartedAt)
+    && scoringStartedAt > 0
+    && Date.now() - scoringStartedAt > TEST_RUN_SCORING_STALE_MS;
 }
 
 export function normalizeTestRunAdTarget(value, fallback = TEST_RUN_DEFAULT_TARGET) {
@@ -2385,6 +2403,12 @@ async function hydratePassingAdsForRounds(roundDetails, projectId, requiredPasse
           };
         })
         .filter(Boolean);
+    } else if (
+      round.batch_id
+      && Number(round.ads_scored) > 0
+      && Number(round.ads_passed || 0) === 0
+    ) {
+      passingAds = [];
     } else if (round.batch_id) {
       if (!scoreBatchForInlineFilterFn) {
         ({ scoreBatchForInlineFilter: scoreBatchForInlineFilterFn } = await import('./creativeFilterService.js'));
@@ -2776,8 +2800,15 @@ async function continueBackgroundTestRun(run) {
   }
 
   // Claim this run before the long scoring operation so the next scheduler
-  // poll (every 5 min) won't pick it up again and create duplicate flex ads.
-  await updateConductorRun(runId, { status: 'scoring' });
+  // poll won't pick it up again and create duplicate Ready-to-Post ad sets.
+  const scoringStartedAt = Date.now();
+  await updateConductorRun(runId, {
+    status: 'scoring',
+    terminal_status: 'filter_scoring',
+    error_stage: 'filter_scoring',
+    scoring_started_at: scoringStartedAt,
+    decisions: `Round ${batchInfo.round || (roundDetails.length + 1)}: Creative Filter QA is scoring generated ads...`,
+  });
 
   let backgroundErrorStage = 'post_score_round_processing';
   let activeRoundState = null;
@@ -3118,6 +3149,7 @@ export async function resumeBackgroundTestRuns() {
     const runs = await getConductorRuns(projectId, 10);
     const testRuns = runs.filter((run) => run.run_type === 'test');
     const candidate = testRuns.find((run) => run.status === 'running')
+      || testRuns.find(isRecoverableScoringTestRun)
       || testRuns.find(isGeminiBackgroundWaitFailure);
 
     if (!candidate) continue;

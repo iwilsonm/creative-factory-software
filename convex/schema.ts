@@ -537,6 +537,7 @@ export default defineSchema({
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
+    scoring_started_at: v.optional(v.number()),
     created_at: v.number(),
   })
     .index("by_externalId", ["externalId"])

@@ -527,6 +527,62 @@ describe('conductorEngine test-run pipeline', () => {
     }));
   });
 
+  it('recovers a stale scoring claim after a completed top-up batch was not scored', async () => {
+    const runAt = Date.parse('2026-05-04T10:00:00Z');
+    mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: runAt,
+        status: 'scoring',
+        terminal_status: 'waiting_on_gemini',
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 1, round: 1, ads_scored: 1, ads_passed: 0 },
+          { batch_id: 'batch-uuid-2', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 2, round: 2 },
+        ]),
+        rounds_json: JSON.stringify([
+          { round: 1, batch_id: 'batch-uuid-1', ads_generated: 1, ads_scored: 1, ads_passed: 0, cumulative_passed: 0 },
+        ]),
+        total_ads_generated: 3,
+        total_ads_scored: 1,
+        total_ads_passed: 0,
+        required_passes: 1,
+        ads_per_round: 1,
+      },
+    ]);
+    mockGetBatchJob.mockResolvedValue({
+      id: 'batch-uuid-2',
+      externalId: 'batch-uuid-2',
+      status: 'completed',
+      angle_name: 'The Sleep Hacks Are Exhausting',
+      angle_prompt: 'Sleep angle',
+      angle_brief: null,
+      batch_size: 2,
+      filter_processed: false,
+    });
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(2, 2, 1));
+
+    const { resumeBackgroundTestRuns } = await importConductorEngine();
+    const result = await resumeBackgroundTestRuns();
+
+    expect(result).toEqual({ checked: 1, resumed: 1, errors: 0 });
+    expect(mockScoreBatchForInlineFilter).toHaveBeenCalledWith('batch-uuid-2', 'proj-1', null, expect.objectContaining({
+      roundNumber: 2,
+    }));
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      status: 'scoring',
+      terminal_status: 'filter_scoring',
+      error_stage: 'filter_scoring',
+      scoring_started_at: expect.any(Number),
+    }));
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      batchId: 'batch-uuid-2',
+      targetCount: 1,
+    }));
+  });
+
   it('queues pending background test rounds for the scheduler instead of leaving them stranded', async () => {
     const runAt = Date.parse('2026-03-07T10:00:00Z');
     mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
