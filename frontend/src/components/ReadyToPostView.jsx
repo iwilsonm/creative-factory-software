@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import JSZip from 'jszip';
 import { api } from '../api';
 import { ensureArray } from '../utils/collections';
@@ -2239,62 +2240,64 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               <span className="text-[11px] text-ed-accent font-semibold">{selectedCards.size} selected</span>
             )}
           </div>
-          {selectedCards.size > 0 && (
-            <div className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-fit sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 bottom-4 z-[70] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-ed-accent/20 bg-ed-surface/95 px-3 py-2 shadow-lg shadow-ed-ink/10 backdrop-blur pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
-              <span className="text-[11px] text-ed-accent font-semibold mr-1">{selectedCards.size} selected</span>
-              <button
-                onClick={async () => {
-                  setBulkMarking(true);
-                  try {
-                    const updates = [];
-                    for (const [cardKey, cardType] of selectedCards) {
-                      if (cardType === 'flex') {
-                        const fa = flexAds.find(f => `flex-${f.id}` === cardKey);
-                        if (fa) {
-                          const children = getFlexChildDeps(fa);
-                          children.forEach(d => updates.push(api.updateDeploymentStatus(d.id, 'posted')));
-                        }
-                      } else {
-                        updates.push(api.updateDeploymentStatus(cardKey, 'posted'));
-                      }
-                    }
-                    await Promise.all(updates);
-                    setDeployments(prev => prev.map(d => selectedCards.has(d.id) || [...selectedCards.keys()].some(k => {
-                      const fa = flexAds.find(f => `flex-${f.id}` === k);
-                      return fa && getFlexChildDeps(fa).some(cd => cd.id === d.id);
-                    }) ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
-                    addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
-                    setSelectedCards(new Map());
-                  } catch {
-                    addToast('Failed to mark as posted', 'error');
-                  } finally {
-                    setBulkMarking(false);
-                  }
-                }}
-                disabled={bulkMarking}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
-              >
-                {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
-              </button>
-              <button
-                onClick={() => setBulkEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
-              >
-                Edit Selected ({selectedCards.size})
-              </button>
-              <button
-                onClick={() => setBulkDeleteConfirm(true)}
-                disabled={bulkDeleting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-rust border border-ed-rust/30 hover:bg-ed-rust/10 transition-colors disabled:opacity-50"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                {bulkDeleting ? 'Deleting...' : `Delete (${selectedCards.size})`}
-              </button>
-            </div>
-          )}
         </div>
+      )}
+
+      {!isPoster && selectedCards.size > 0 && typeof document !== 'undefined' && createPortal(
+        <div className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-fit sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 bottom-4 z-[70] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-ed-accent/20 bg-ed-surface/95 px-3 py-2 shadow-lg shadow-ed-ink/10 backdrop-blur pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+          <span className="text-[11px] text-ed-accent font-semibold mr-1">{selectedCards.size} selected</span>
+          <button
+            onClick={async () => {
+              setBulkMarking(true);
+              try {
+                const updates = [];
+                for (const [cardKey, cardType] of selectedCards) {
+                  if (cardType === 'flex') {
+                    const fa = flexAds.find(f => `flex-${f.id}` === cardKey);
+                    if (fa) {
+                      const children = getFlexChildDeps(fa);
+                      children.forEach(d => updates.push(api.updateDeploymentStatus(d.id, 'posted')));
+                    }
+                  } else {
+                    updates.push(api.updateDeploymentStatus(cardKey, 'posted'));
+                  }
+                }
+                await Promise.all(updates);
+                setDeployments(prev => prev.map(d => selectedCards.has(d.id) || [...selectedCards.keys()].some(k => {
+                  const fa = flexAds.find(f => `flex-${f.id}` === k);
+                  return fa && getFlexChildDeps(fa).some(cd => cd.id === d.id);
+                }) ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
+                addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
+                setSelectedCards(new Map());
+              } catch {
+                addToast('Failed to mark as posted', 'error');
+              } finally {
+                setBulkMarking(false);
+              }
+            }}
+            disabled={bulkMarking}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
+          >
+            {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
+          </button>
+          <button
+            onClick={() => setBulkEditing(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
+          >
+            Edit Selected ({selectedCards.size})
+          </button>
+          <button
+            onClick={() => setBulkDeleteConfirm(true)}
+            disabled={bulkDeleting}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-rust border border-ed-rust/30 hover:bg-ed-rust/10 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            {bulkDeleting ? 'Deleting...' : `Delete (${selectedCards.size})`}
+          </button>
+        </div>,
+        document.body
       )}
 
       {/* Bulk Edit Panel */}
