@@ -32,6 +32,7 @@ function composeFlexFromAdSet(adSet, deployments) {
     posted_by: sample.posted_by || '',
     duplicate_adset_name: sample.duplicate_adset_name || '',
     notes: sample.notes || '',
+    ad_name: sample.ad_name || '',
     angle_id: adSet.angle_id || null,
     angle_name: adSet.angle_name || sample.ad?.angle_name || sample.ad?.angle || '',
     lifecycle_status: adSet.lifecycle_status || '',
@@ -540,31 +541,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setBulkMarkingAll(false);
   };
 
-  // ── Posted By ──────────────────────────────────────────────────────────────
-
-  const handlePostedByChange = async (depId, value, isFlex = false) => {
-    try {
-      if (isFlex) {
-        // Phase 6.20b — fan out posted_by to every child deployment of the
-        // ad_set. The flex-shape "posted_by" displayed in the card is sampled
-        // from children[0]; writing to all children keeps the field
-        // consistent if a child is reordered later.
-        const flexAd = safeFlexAds.find(f => f.id === depId);
-        const children = flexAd ? getFlexChildDeps(flexAd) : [];
-        await Promise.all(children.map(d => api.updateDeploymentPostedBy(d.id, value || '')));
-        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
-          children.some(c => c.id === d.id) ? { ...d, posted_by: value } : d
-        ));
-        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === depId ? { ...f, posted_by: value } : f));
-      } else {
-        await api.updateDeploymentPostedBy(depId, value || '');
-        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === depId ? { ...d, posted_by: value } : d));
-      }
-    } catch {
-      addToast('Failed to save', 'error');
-    }
-  };
-
   // ── Admin Edit Helpers ──────────────────────────────────────────────────────
 
   const startEditing = (cardKey, data, isFlex = false) => {
@@ -760,10 +736,36 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }
   };
 
+  const resolvePlacementCampaignId = async () => {
+    const mode = sectionFields.campaign_mode || 'existing';
+    if (mode !== 'new') return sectionFields.campaign_id || '';
+
+    const name = (sectionFields.new_campaign_name || '').trim();
+    if (!name) {
+      addToast('Please enter a campaign name', 'error');
+      return null;
+    }
+
+    const existing = safeCampaigns.find(c => (c.name || '').trim().toLowerCase() === name.toLowerCase());
+    if (existing) return existing.id;
+
+    const result = await api.createCampaign(projectId, name);
+    const newCampaignId = result.id;
+    setCampaigns(prev => [
+      ...ensureArray(prev, 'ReadyToPostView.campaignsState'),
+      { id: newCampaignId, name, project_id: projectId },
+    ]);
+    return newCampaignId;
+  };
+
   const savePlacementSection = async ({ id, cardKey, isFlex, currentAdSetId = '', currentDeployment = null }) => {
     setSavingSection(sectionEditKey(cardKey, 'placement'));
     try {
-      const newCampaignId = sectionFields.campaign_id || '';
+      const newCampaignId = await resolvePlacementCampaignId();
+      if (newCampaignId === null) {
+        setSavingSection(null);
+        return;
+      }
       const adSetNameTyped = (sectionFields.ad_set_name || '').trim();
       const adNameTyped = (sectionFields.ad_name || '').trim();
 
@@ -777,40 +779,54 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         const adSetFields = {};
         if (newCampaignId) adSetFields.campaign_id = newCampaignId;
         if (adSetNameTyped) adSetFields.name = adSetNameTyped;
-        if (Object.keys(adSetFields).length > 0) {
-          await api.updateAdSetUnified(projectId, id, adSetFields);
+        const children = getFlexChildDeps(safeFlexAds.find(f => f.id === id));
+        const writes = [];
+        if (Object.keys(adSetFields).length > 0) writes.push(api.updateAdSetUnified(projectId, id, adSetFields));
+        if (adNameTyped && children.length > 0) writes.push(...children.map(d => api.updateDeployment(d.id, { ad_name: adNameTyped })));
+        if (writes.length > 0) {
+          await Promise.all(writes);
           setAdSets(prev => ensureArray(prev, 'ReadyToPostView.adSetsState').map(a =>
             a.id === id ? { ...a, ...adSetFields } : a
           ));
           setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f =>
-            f.id === id ? { ...f, ...adSetFields, name: adSetFields.name ?? f.name } : f
+            f.id === id ? { ...f, ...adSetFields, name: adSetFields.name ?? f.name, ad_name: adNameTyped || f.ad_name } : f
           ));
+          if (adNameTyped) {
+            setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+              children.some(c => c.id === d.id) ? { ...d, ad_name: adNameTyped } : d
+            ));
+          }
         }
       } else {
         const payload = {};
         let resolvedAdSetId = currentAdSetId || currentDeployment?.local_adset_id || '';
 
-        if (newCampaignId && adSetNameTyped) {
-          const existingAdSet = safeAdSets.find(a => a.campaign_id === newCampaignId && a.name === adSetNameTyped);
+        if ((newCampaignId || resolvedAdSetId) && adSetNameTyped) {
+          const targetCampaignId = newCampaignId || safeAdSets.find(a => a.id === resolvedAdSetId)?.campaign_id || '';
+          const existingAdSet = targetCampaignId
+            ? safeAdSets.find(a => a.campaign_id === targetCampaignId && a.name === adSetNameTyped)
+            : null;
           if (existingAdSet) {
             resolvedAdSetId = existingAdSet.id;
           } else {
             const currentAdSet = resolvedAdSetId ? safeAdSets.find(a => a.id === resolvedAdSetId) : null;
-            if (currentAdSet && currentAdSet.name === adSetNameTyped) {
-              await api.updateAdSetUnified(projectId, resolvedAdSetId, { campaign_id: newCampaignId });
+            if (currentAdSet) {
+              const updateFields = { name: adSetNameTyped };
+              if (targetCampaignId) updateFields.campaign_id = targetCampaignId;
+              await api.updateAdSetUnified(projectId, resolvedAdSetId, updateFields);
               setAdSets(prev => ensureArray(prev, 'ReadyToPostView.adSetsState').map(a =>
-                a.id === resolvedAdSetId ? { ...a, campaign_id: newCampaignId } : a
+                a.id === resolvedAdSetId ? { ...a, ...updateFields } : a
               ));
-            } else {
-              const result = await api.createAdSet(newCampaignId, adSetNameTyped, projectId);
+            } else if (targetCampaignId) {
+              const result = await api.createAdSet(targetCampaignId, adSetNameTyped, projectId);
               resolvedAdSetId = result.id;
               setAdSets(prev => [
                 ...ensureArray(prev, 'ReadyToPostView.adSetsState'),
-                { id: resolvedAdSetId, name: adSetNameTyped, campaign_id: newCampaignId, project_id: projectId },
+                { id: resolvedAdSetId, name: adSetNameTyped, campaign_id: targetCampaignId, project_id: projectId },
               ]);
             }
           }
-          payload.local_campaign_id = newCampaignId;
+          if (targetCampaignId) payload.local_campaign_id = targetCampaignId;
           payload.local_adset_id = resolvedAdSetId;
         }
 
@@ -1125,20 +1141,48 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   const PlacementEditForm = ({ cardKey, isFlex, id, currentAdSetId, currentDeployment }) => {
     const saveKey = sectionEditKey(cardKey, 'placement');
+    const campaignMode = sectionFields.campaign_mode || 'existing';
     return (
       <div className="mt-3 pt-3 border-t border-ed-accent/15 space-y-3">
         <div>
           <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Campaign</label>
-          <select
-            value={sectionFields.campaign_id || ''}
-            onChange={e => updateSectionField('campaign_id', e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
-          >
-            <option value="">Select a campaign...</option>
-            {safeCampaigns.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
+          <div className="inline-flex rounded-lg border border-ed-line bg-ed-bg p-0.5 mb-2">
+            {[
+              ['existing', 'Existing'],
+              ['new', 'New'],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => updateSectionField('campaign_mode', mode)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                  campaignMode === mode ? 'bg-white text-ed-accent shadow-sm' : 'text-ed-ink2 hover:text-ed-ink'
+                }`}
+              >
+                {label}
+              </button>
             ))}
-          </select>
+          </div>
+          {campaignMode === 'new' ? (
+            <input
+              type="text"
+              value={sectionFields.new_campaign_name || ''}
+              onChange={e => updateSectionField('new_campaign_name', e.target.value)}
+              placeholder="New campaign name..."
+              className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
+            />
+          ) : (
+            <select
+              value={sectionFields.campaign_id || ''}
+              onChange={e => updateSectionField('campaign_id', e.target.value)}
+              className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
+            >
+              <option value="">Select a campaign...</option>
+              {safeCampaigns.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
         </div>
         <div>
           <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Set Name</label>
@@ -1149,17 +1193,18 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
           />
         </div>
-        {!isFlex && (
-          <div>
-            <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Name</label>
-            <input
-              type="text"
-              value={sectionFields.ad_name || ''}
-              onChange={e => updateSectionField('ad_name', e.target.value)}
-              className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
-            />
-          </div>
-        )}
+        <div>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Name</label>
+          <input
+            type="text"
+            value={sectionFields.ad_name || ''}
+            onChange={e => updateSectionField('ad_name', e.target.value)}
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20"
+          />
+          {isFlex && (
+            <p className="text-[10px] text-ed-ink3 mt-1">This updates the top-level ad name for the grouped card. Individual image names can still be edited in Ad Names.</p>
+          )}
+        </div>
         <div className="flex items-center justify-end gap-2">
           <button onClick={cancelSectionEdit}
             className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors">Cancel</button>
@@ -1603,22 +1648,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
-  const PostedByDropdown = ({ value, onChange }) => (
-    <div className="flex items-center gap-2">
-      <span className="text-[11px] font-medium text-ed-ink2">Posted by:</span>
-      <select
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-        className="text-[12px] font-semibold text-ed-ink bg-ed-bg border border-ed-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
-      >
-        <option value="">Select...</option>
-        <option value="Corinne">Corinne</option>
-        <option value="Liz">Liz</option>
-        <option value="Ian">Ian</option>
-      </select>
-    </div>
-  );
-
   // ── Admin Edit Panel ──────────────────────────────────────────────────────
 
   const EditPanel = ({ cardKey, id, isFlex = false }) => {
@@ -1750,7 +1779,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             adName={name}
             cardKey={dep.id}
             onEdit={() => startSectionEdit(dep.id, 'placement', {
+              campaign_mode: 'existing',
               campaign_id: dep.local_campaign_id || '',
+              new_campaign_name: '',
               ad_set_name: adSetName || '',
               ad_name: name || '',
             })}
@@ -1847,7 +1878,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
           </div>
           <div className="flex items-center gap-3">
-            <PostedByDropdown value={dep.posted_by} onChange={(val) => handlePostedByChange(dep.id, val)} />
             {confirmPosted === dep.id ? (
               <div className="flex items-center gap-2">
                 <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-ed-ink2 hover:bg-white transition-colors">Cancel</button>
@@ -1946,13 +1976,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             campaignName={campaignName}
             adSetName={adSetName}
             duplicateAdSetName={flexAd.duplicate_adset_name}
-            adName={flexAd.name || 'Ad Set'}
+            adName={flexAd.ad_name || flexAd.name || 'Ad Set'}
             cardKey={flexId}
             onEdit={() => {
               const adSet = safeAdSets.find(a => a.id === flexAd.ad_set_id);
               startSectionEdit(flexId, 'placement', {
+                campaign_mode: 'existing',
                 campaign_id: adSet?.campaign_id || '',
+                new_campaign_name: '',
                 ad_set_name: adSet?.name || flexAd.name || '',
+                ad_name: flexAd.ad_name || flexAd.name || '',
               });
             }}
             editContent={editingSection === placementEditKey ? (
@@ -2125,7 +2158,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
           </div>
           <div className="flex items-center gap-3">
-            <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
             {confirmPosted === flexId ? (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-ed-ink2">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
