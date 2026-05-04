@@ -8,6 +8,7 @@ const SIDEBAR_KEY = 'sidebar-collapsed';
 const TAB_MAP = [
   { key: 'ads',         label: 'Ad Studio',        icon: BoltIcon },
   { key: 'tracker',     label: 'Ad Pipeline',       icon: LayersIcon },
+  { key: 'automation',  label: 'Automation',         icon: AutomationIcon },
   { key: 'analytics',   label: 'Analytics',          icon: ChartIcon },
   { key: 'observation', label: 'Observation',        icon: EyeIcon },
   { key: 'overview',    label: 'Project Settings',   icon: CogIcon },
@@ -382,6 +383,13 @@ function LayersIcon() {
   return (
     <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" />
+    </svg>
+  );
+}
+function AutomationIcon() {
+  return (
+    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
     </svg>
   );
 }

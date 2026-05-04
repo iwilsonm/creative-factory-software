@@ -1377,7 +1377,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [angleOptions, setAngleOptions] = useState([]);
   const [runs, setRuns] = useState([]);
   const [playbooks, setPlaybooks] = useState([]);
-  const [subTab, setSubTab] = useState('history');
+  const [subTab, setSubTab] = useState('settings');
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [projectLoading, setProjectLoading] = useState(!externalProjectId);
   const [baseLoading, setBaseLoading] = useState(false);
@@ -2369,10 +2369,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   if (!selectedProject) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Select a project to load Director settings.'}</div>;
 
   const subTabs = [
+    { id: 'settings', label: 'Settings' },
     { id: 'history', label: 'Run History' },
     { id: 'angles', label: 'Angles' },
     { id: 'playbooks', label: 'Playbooks' },
-    { id: 'settings', label: 'Settings' },
   ];
 
   const pinSystemFirst = (list) => list.sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0));

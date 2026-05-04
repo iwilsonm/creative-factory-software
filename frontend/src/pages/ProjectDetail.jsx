@@ -57,7 +57,7 @@ export default function ProjectDetail() {
   // Persist active tab in URL search params so it survives page refresh.
   // Phase 6 — `'staging'` removed from validTabs. Server-side redirect below
   // catches any bookmarked ?tab=staging URLs and redirects to defaultTab.
-  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'analytics', 'observation'];
+  const validTabs = ['ads', 'tracker', 'automation', 'overview', 'docs', 'templates', 'analytics', 'observation'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -88,7 +88,7 @@ export default function ProjectDetail() {
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
   // settingsSubTab persists in URL `?subtab=` so refresh holds position.
-  const validSubTabs = ['general', 'docs', 'automation', 'meta', 'observation', 'templates'];
+  const validSubTabs = ['general', 'docs', 'meta', 'observation', 'templates'];
   const subTabFromUrl = searchParams.get('subtab');
   const normalizedSubTabFromUrl = LEGACY_SETTINGS_SUBTABS[subTabFromUrl] || subTabFromUrl;
   const [settingsSubTab, setSettingsSubTabState] = useState(
@@ -104,6 +104,18 @@ export default function ProjectDetail() {
       return next;
     }, { replace: true });
   }, [subTabFromUrl, setSearchParams]);
+  useEffect(() => {
+    if (tab !== 'overview') return;
+    const raw = searchParams.get('subtab');
+    if (raw === 'automation' || raw === 'filter' || raw === 'creative_director') {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'automation');
+        next.delete('subtab');
+        return next;
+      }, { replace: true });
+    }
+  }, [tab, searchParams, setSearchParams]);
   const setSettingsSubTab = useCallback((newSubTab) => {
     setSettingsSubTabState(newSubTab);
     setSearchParams(prev => {
@@ -318,9 +330,10 @@ export default function ProjectDetail() {
   const allTabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run background generation batches.' },
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Move ads from Queue to Planner, group them into ad sets, prepare them in Ready to Post, and track Posted work.' },
+    { id: 'automation', label: 'Automation', tooltip: 'Creative Director batch planning, Creative Filter scoring, angles, and agent settings.' },
     { id: 'analytics', label: 'Analytics', tooltip: 'Meta campaign, ad set, and ad performance with custom columns, filters, tags, notes, and drilldowns.' },
     { id: 'observation', label: 'Observation', tooltip: 'Track posted ad sets during the observation window and use verdicts to guide which angles keep running.' },
-    { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, automation settings, Meta setup, and template library.' }
+    { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, Meta setup, and template library.' }
   ];
 
   // Poster only sees Ad Pipeline tab
@@ -401,10 +414,9 @@ export default function ProjectDetail() {
             sections={[
               { id: 'general', num: '01', label: 'General', status: project?.status === 'active' ? 'ok' : project?.status === 'setup' ? 'todo' : 'ok' },
               { id: 'docs', num: '02', label: 'Foundational Docs', status: (project?.docCount || 0) > 0 ? 'ok' : 'todo' },
-              { id: 'automation', num: '03', label: 'Ad Automation', status: 'ok' },
-              { id: 'meta', num: '04', label: 'Meta', status: project?.meta_token ? 'ok' : 'warn' },
-              { id: 'observation', num: '05', label: 'Observation', status: 'ok' },
-              { id: 'templates', num: '06', label: 'Template Library', status: 'ok' },
+              { id: 'meta', num: '03', label: 'Meta', status: project?.meta_token ? 'ok' : 'warn' },
+              { id: 'observation', num: '04', label: 'Observation', status: 'ok' },
+              { id: 'templates', num: '05', label: 'Template Library', status: 'ok' },
             ]}
             activeSection={settingsSubTab}
             onSectionChange={setSettingsSubTab}
@@ -647,11 +659,6 @@ export default function ProjectDetail() {
               <FoundationalDocs projectId={id} projectStatus={project.status} />
             </ErrorBoundary>
           )}
-          {settingsSubTab === 'automation' && (
-            <ErrorBoundary level="tab" key="automation">
-              <AgentMonitor projectId={id} project={project} onProjectRefresh={loadProject} />
-            </ErrorBoundary>
-          )}
           {settingsSubTab === 'meta' && (
             <ErrorBoundary level="tab" key="meta">
               <MetaConnectPanel projectId={id} />
@@ -690,6 +697,11 @@ export default function ProjectDetail() {
         {tab === 'observation' && (
           <ErrorBoundary level="tab" key="observation">
             <ObservationTab projectId={id} project={project} />
+          </ErrorBoundary>
+        )}
+        {tab === 'automation' && (
+          <ErrorBoundary level="tab" key="automation">
+            <AgentMonitor projectId={id} project={project} onProjectRefresh={loadProject} />
           </ErrorBoundary>
         )}
       </div>
