@@ -19,7 +19,7 @@ import {
   // Phase 1 — Staging Page lifecycle
   setFilterVerdict,
   // Phase 9 — Auto-posting
-  createAutoPostLog, upsertConductorConfig,
+  upsertConductorConfig,
 } from '../convexClient.js';
 import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineDiversity.js';
 import { evaluateAutoPostGate } from './autoPostGate.js';
@@ -43,6 +43,21 @@ const HEADLINE_POOL_TARGET = 7;
 const PRIMARY_TEXTS_TARGET = 5;
 const HEADLINES_MIN = 3;
 const PRIMARY_TEXTS_MIN = 3;
+
+async function safeCreateAutoPostLog(entry) {
+  try {
+    const convexModule = await import('../convexClient.js');
+    if (typeof convexModule.createAutoPostLog !== 'function') {
+      console.warn('[FilterService] Auto-post log skipped: createAutoPostLog export unavailable');
+      return false;
+    }
+    await convexModule.createAutoPostLog(entry);
+    return true;
+  } catch (err) {
+    console.warn(`[FilterService] Auto-post log skipped: ${err?.message || err}`);
+    return false;
+  }
+}
 
 function clampScore(value, fallback = 0) {
   const numeric = Number(value);
@@ -848,7 +863,7 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
       const startMs = Date.now();
       try {
         const postResult = await postAdSetToMeta(adSetId, projectId, { adStatus: 'ACTIVE' });
-        await createAutoPostLog({
+        await safeCreateAutoPostLog({
           externalId: crypto.randomUUID(),
           project_id: projectId,
           ad_set_id: adSetId,
@@ -868,7 +883,7 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
         });
         console.log(`[FilterService] Auto-posted ad_set "${adSetName}" to Meta (${postResult.path_used})`);
       } catch (postErr) {
-        await createAutoPostLog({
+        await safeCreateAutoPostLog({
           externalId: crypto.randomUUID(),
           project_id: projectId,
           ad_set_id: adSetId,
@@ -889,7 +904,7 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
         console.warn(`[FilterService] Auto-post failed for "${adSetName}": ${postErr.message}`);
       }
     } else {
-      await createAutoPostLog({
+      await safeCreateAutoPostLog({
         externalId: crypto.randomUUID(),
         project_id: projectId,
         ad_set_id: adSetId,
