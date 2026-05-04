@@ -677,6 +677,9 @@ export const api = {
     request(`/projects/${projectId}/ad-sets`, {
       method: 'POST',
       body: JSON.stringify({ name, campaign_id, deployment_ids, create_new_campaign, angle_id }),
+    }).then(result => {
+      invalidateCache(`/deployments?projectId=${projectId}`);
+      return result;
     }),
   updateAdSetUnified: (projectId, adSetId, fields) =>
     request(`/projects/${projectId}/ad-sets/${adSetId}`, { method: 'PUT', body: JSON.stringify(fields) }),

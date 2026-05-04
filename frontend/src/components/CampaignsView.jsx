@@ -275,7 +275,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   const refreshPlannerData = useCallback(async () => {
     const [deploymentData, campData, draftAdSets] = await Promise.all([
-      api.getProjectDeployments(projectId),
+      api.getProjectDeployments(projectId, { force: true }),
       api.getCampaigns(projectId),
       api.getAdSets(projectId, ['draft']),
     ]);
@@ -1522,13 +1522,37 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' at ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
                     } catch { return ''; }
                   })() : '';
+                  const isChildSelected = selectedInStaging.has(d.id);
                   return (
-                    <button
+                    <div
                       key={d.id}
-                      type="button"
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, d.id, true)}
+                      onDragEnd={handleDragEnd}
                       onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'single', deployment: d, ad: d.ad }); }}
-                      className="w-full flex items-center gap-2.5 p-2 rounded-lg border border-ed-line bg-ed-surface hover:border-ed-accent/20 transition-all text-left"
+                      className={`w-full flex items-center gap-2.5 p-2 rounded-lg border bg-ed-surface hover:border-ed-accent/20 transition-all text-left cursor-grab active:cursor-grabbing ${
+                        isChildSelected ? 'border-ed-accent/40 bg-[rgba(168,84,59,0.06)]' : 'border-ed-line'
+                      }`}
                     >
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onDragStart={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleStagingSelect(d.id);
+                        }}
+                        className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+                          isChildSelected ? 'bg-ed-accent border-ed-accent' : 'border-[1.5px] border-ed-ink3/60 hover:border-ed-accent/40'
+                        }`}
+                        aria-label={`Select ad ${adName}`}
+                      >
+                        {isChildSelected && (
+                          <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
                       {d.imageUrl ? (
                         <img
                           src={d.imageUrl}
@@ -1551,7 +1575,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                         )}
                       </div>
                       <span className="text-[10px] text-ed-accent font-medium flex-shrink-0">Details</span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

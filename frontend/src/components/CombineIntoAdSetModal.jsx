@@ -75,7 +75,7 @@ export default function CombineIntoAdSetModal({
     ? newCampaignTrimmed.length >= 1 && newCampaignTrimmed.length <= 80 && NAME_PATTERN.test(newCampaignTrimmed)
     : true;
   const campaignValid = campaignMode === 'existing' ? true : newCampaignValid;
-  const canSave = nameValid && campaignValid && deploymentIds.length > 0 && !lockError && !saving;
+  const canSave = nameValid && campaignValid && deploymentIds.length > 0 && !saving;
 
   const handleSave = async () => {
     if (!canSave || savingRef.current) return;
@@ -92,6 +92,7 @@ export default function CombineIntoAdSetModal({
         body.campaign_id = existingCampaignId;
       }
       const result = await api.createAdSetFromAds(projectId, body);
+      setLockError(null);
       onSuccess?.(result);
       onClose?.();
     } catch (err) {
@@ -200,7 +201,7 @@ export default function CombineIntoAdSetModal({
           {/* Lock error */}
           {lockError && (
             <div className="text-[12px] text-ed-rust bg-ed-rust/10 border border-ed-rust/30 rounded-lg p-2.5">
-              {lockError}
+              {lockError} You can still try creating the ad set; if one of the selected ads changed, the save will fail safely.
             </div>
           )}
         </div>
