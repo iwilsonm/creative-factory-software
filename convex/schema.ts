@@ -444,6 +444,18 @@ export default defineSchema({
     sub_angle_min_active_for_health_bias: v.optional(v.number()),    // default 3
     sub_angle_min_active_for_lineage_cap: v.optional(v.number()),    // default 5
     sub_angle_per_project_daily_cost_cap_usd: v.optional(v.number()),  // default 0.45
+    // Phase 9 — auto-posting to Meta
+    auto_post_enabled: v.optional(v.boolean()),
+    auto_post_max_daily_sets: v.optional(v.number()),
+    auto_post_max_daily_budget_cents: v.optional(v.number()),
+    auto_post_require_min_score: v.optional(v.number()),
+    auto_post_pause_on_error: v.optional(v.boolean()),
+    auto_post_error_threshold: v.optional(v.number()),
+    auto_post_consecutive_errors: v.optional(v.number()),
+    auto_post_paused_reason: v.optional(v.string()),
+    auto_post_today_count: v.optional(v.number()),
+    auto_post_today_date: v.optional(v.string()),
+    auto_post_last_posted_at: v.optional(v.number()),
     created_at: v.number(),
     updated_at: v.number(),
   })
@@ -568,6 +580,34 @@ export default defineSchema({
   })
     .index("by_project", ["project_id"])
     .index("by_project_and_angle", ["project_id", "angle_name"]),
+
+  auto_post_log: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    ad_set_id: v.string(),
+    meta_adset_id: v.optional(v.string()),
+    status: v.string(),
+    gate_reason: v.optional(v.string()),
+    error_message: v.optional(v.string()),
+    duration_ms: v.optional(v.number()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  reconciliation_log: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    action: v.string(),
+    cf_entity_id: v.string(),
+    cf_entity_type: v.string(),
+    meta_entity_id: v.string(),
+    linked_by: v.string(),
+    notes: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
 
   users: defineTable({
     externalId: v.string(),

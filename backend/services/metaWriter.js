@@ -29,7 +29,7 @@ import { postAdSetWithAds, MCPNotAuthorizedError } from './metaMcp.js';
 
 // Map our local Meta-settings shape (from project.adset_default_template + per-set
 // overrides) to the parameter shape Meta's API expects.
-function buildAdSetSpec(adSet, project) {
+function buildAdSetSpec(adSet, project, adStatus = 'PAUSED') {
   const targetingJson = adSet.meta_targeting || project?.adset_default_template_targeting || null;
   let targeting;
   try {
@@ -55,7 +55,7 @@ function buildAdSetSpec(adSet, project) {
     billing_event: adSet.meta_billing_event || 'IMPRESSIONS',
     optimization_goal: adSet.meta_optimization_goal || 'LINK_CLICKS',
     targeting,
-    status: 'PAUSED',
+    status: adStatus,
     start_time: schedule?.start_time || undefined,
     end_time: schedule?.end_time || undefined,
   };
@@ -69,7 +69,8 @@ function buildAdSetSpec(adSet, project) {
  * @returns {Promise<{ meta_adset_id, meta_ad_ids: string[], path_used: 'mcp'|'api' }>}
  * @throws  Error with .code = 'NOT_CONNECTED' | 'NO_PAGE' | 'NO_ADS' | 'TOKEN_EXPIRED' | 'MCP_NOT_AUTHORIZED'
  */
-export async function postAdSetToMeta(adSetId, projectId) {
+export async function postAdSetToMeta(adSetId, projectId, options = {}) {
+  const adStatus = options.adStatus || 'PAUSED';
   // 1. Resolve project + token + page
   const project = await getProjectRawForMeta(projectId);
   if (!project) {
@@ -92,6 +93,12 @@ export async function postAdSetToMeta(adSetId, projectId) {
   const accountId = project.meta_account_id;
   const pageId = project.meta_page_id;
   const path = project.meta_integration_path === 'api' ? 'api' : 'mcp';
+
+  if (path === 'api') {
+    const e = new Error('Direct API posting is not currently enabled. Please use the MCP integration path. You can change this in Project Settings → Meta.');
+    e.code = 'API_BLOCKED';
+    throw e;
+  }
 
   // 2. Resolve ad set + ads
   const adSet = await getAdSet(adSetId);
@@ -117,7 +124,7 @@ export async function postAdSetToMeta(adSetId, projectId) {
       const campaignRes = await createCampaign(token, accountId, {
         name: `[CF] ${adSet.name}`,
         objective: 'OUTCOME_TRAFFIC',
-        status: 'PAUSED',
+        status: adStatus,
         special_ad_categories: [],
       });
       metaCampaignId = campaignRes.id;
@@ -177,7 +184,7 @@ export async function postAdSetToMeta(adSetId, projectId) {
   let metaAdsetId;
   let metaAdIds = [];
   let pathUsed = path;
-  const adSetSpec = buildAdSetSpec(adSet, project);
+  const adSetSpec = buildAdSetSpec(adSet, project, adStatus);
 
   // Default destination URL — first ad's destination_url if available, else a placeholder
   const defaultLink = adsWithHashes[0]?.ad?.destination_url
@@ -198,7 +205,7 @@ export async function postAdSetToMeta(adSetId, projectId) {
       image_hash: imageHash,
       link: ad.destination_url || defaultLink,
       cta_button: 'LEARN_MORE',
-      status: 'PAUSED',
+      status: adStatus,
     }));
 
     try {
@@ -247,7 +254,7 @@ export async function postAdSetToMeta(adSetId, projectId) {
             name: ad.headline ? `[CF] ${ad.headline.slice(0, 50)}` : `[CF] ${ad.id.slice(0, 8)}`,
             adset_id: metaAdsetId,
             creative,
-            status: 'PAUSED',
+            status: adStatus,
           });
           metaAdIds.push(adRes.id);
           // Persist the per-ad Meta IDs as we go

@@ -2275,6 +2275,30 @@ export async function getAllConductorConfigs() {
 }
 
 // =============================================
+// Auto-Post Log helpers
+// =============================================
+
+export async function createAutoPostLog(entry) {
+  await mutationWithRetry(api.conductor.createAutoPostLog, entry);
+}
+
+export async function getAutoPostLogs(projectId, limit = 50) {
+  return await cachedQuery('auto_post_log', api.conductor.getAutoPostLogsByProject, { projectId, limit });
+}
+
+// =============================================
+// Reconciliation Log helpers
+// =============================================
+
+export async function createReconciliationLog(entry) {
+  await mutationWithRetry(api.conductor.createReconciliationLog, entry);
+}
+
+export async function getReconciliationLogs(projectId) {
+  return await cachedQuery('reconciliation_log', api.conductor.getReconciliationLogsByProject, { projectId });
+}
+
+// =============================================
 // LP Agent Config helpers (Landing Page Agent)
 // =============================================
 

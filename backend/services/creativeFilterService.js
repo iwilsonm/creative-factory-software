@@ -18,8 +18,12 @@ import {
   ensureDefaultCampaign,
   // Phase 1 — Staging Page lifecycle
   setFilterVerdict,
+  // Phase 9 — Auto-posting
+  createAutoPostLog, upsertConductorConfig,
 } from '../convexClient.js';
 import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineDiversity.js';
+import { evaluateAutoPostGate } from './autoPostGate.js';
+import { postAdSetToMeta } from './metaWriter.js';
 
 // Models — match filter.conf
 const SCORE_MODEL = 'claude-sonnet-4-6';
@@ -836,6 +840,68 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
   }
 
   console.log(`[FilterService] Phase6 — Deployed ad_set "${adSetName}" → Ready to Post (${headlines.length} headlines × ${primaryTexts.length} texts × ${deploymentIds.length} images)`);
+
+  // Phase 9 — Auto-post to Meta if enabled
+  try {
+    const gateResult = await evaluateAutoPostGate(projectId, adSetId);
+    if (gateResult.allowed) {
+      const startMs = Date.now();
+      try {
+        const postResult = await postAdSetToMeta(adSetId, projectId, { adStatus: 'ACTIVE' });
+        await createAutoPostLog({
+          externalId: crypto.randomUUID(),
+          project_id: projectId,
+          ad_set_id: adSetId,
+          meta_adset_id: postResult.meta_adset_id,
+          status: 'success',
+          duration_ms: Date.now() - startMs,
+          created_at: new Date().toISOString(),
+        });
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+        const config = await getConductorConfig(projectId);
+        const todayCount = (config?.auto_post_today_date === today) ? (config?.auto_post_today_count ?? 0) : 0;
+        await upsertConductorConfig(projectId, {
+          auto_post_today_count: todayCount + 1,
+          auto_post_today_date: today,
+          auto_post_last_posted_at: Date.now(),
+          auto_post_consecutive_errors: 0,
+        });
+        console.log(`[FilterService] Auto-posted ad_set "${adSetName}" to Meta (${postResult.path_used})`);
+      } catch (postErr) {
+        await createAutoPostLog({
+          externalId: crypto.randomUUID(),
+          project_id: projectId,
+          ad_set_id: adSetId,
+          status: 'failed',
+          error_message: postErr.message,
+          duration_ms: Date.now() - startMs,
+          created_at: new Date().toISOString(),
+        });
+        const config = await getConductorConfig(projectId);
+        const errors = (config?.auto_post_consecutive_errors ?? 0) + 1;
+        const threshold = config?.auto_post_error_threshold ?? 3;
+        const updates = { auto_post_consecutive_errors: errors };
+        if (config?.auto_post_pause_on_error !== false && errors >= threshold) {
+          updates.auto_post_enabled = false;
+          updates.auto_post_paused_reason = `Auto-paused after ${errors} consecutive errors: ${postErr.message}`;
+        }
+        await upsertConductorConfig(projectId, updates);
+        console.warn(`[FilterService] Auto-post failed for "${adSetName}": ${postErr.message}`);
+      }
+    } else {
+      await createAutoPostLog({
+        externalId: crypto.randomUUID(),
+        project_id: projectId,
+        ad_set_id: adSetId,
+        status: 'skipped_gate',
+        gate_reason: gateResult.reason,
+        created_at: new Date().toISOString(),
+      });
+    }
+  } catch (autoPostErr) {
+    console.warn(`[FilterService] Auto-post gate check failed: ${autoPostErr.message}`);
+  }
+
   return { adSetId, deploymentCount: deploymentIds.length };
 }
 

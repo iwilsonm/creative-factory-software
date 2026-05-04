@@ -36,6 +36,7 @@ import metaRoutes from './routes/meta.js';
 import analyticsRoutes from './routes/analytics.js';
 import observationRoutes, { observationAdminRouter } from './routes/observation.js';
 import cronRoutes from './routes/cron.js';
+import reconciliationRoutes from './routes/reconciliation.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { refreshGeminiRates } from './services/costTracker.js';
@@ -323,6 +324,8 @@ try {
   // Phase 3 — Observation tab routes + admin observation triggers.
   app.use('/api/projects', observationRoutes);
   app.use('/api/admin', observationAdminRouter);
+  // Phase 9 — Reconciliation routes (link unobserved Meta ads to CF ad sets).
+  app.use('/api/projects', reconciliationRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);

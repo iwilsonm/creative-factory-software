@@ -63,6 +63,14 @@ export default function ObservationTab({ projectId, project }) {
   const [previewAd, setPreviewAd] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [filters, setFilters] = useState([]);
+
+  // Phase 9 — Unobserved (unlinked) Meta ads reconciliation
+  const [unlinkedAdSets, setUnlinkedAdSets] = useState([]);
+  const [unlinkedLoading, setUnlinkedLoading] = useState(false);
+  const [showUnlinked, setShowUnlinked] = useState(true);
+  const [linkTarget, setLinkTarget] = useState(null); // { metaAdsetId, metaCampaignId, postedAt }
+  const [linkableAdSets, setLinkableAdSets] = useState([]);
+  const [linking, setLinking] = useState(false);
   const [sort, setSort] = useState({ field: 'spend', dir: 'desc' });
   const [columns, setColumns] = useState(DEFAULT_COLUMNS_BY_LEVEL.observation);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -150,6 +158,44 @@ export default function ObservationTab({ projectId, project }) {
     setSelectedKeys([]);
     setBulkTagId('');
   }, [projectId, statusFilter, filters]);
+
+  // Phase 9 — Load unlinked Meta ad sets
+  const loadUnlinked = useCallback(async () => {
+    setUnlinkedLoading(true);
+    try {
+      const res = await api.getUnlinkedAdSets(projectId);
+      setUnlinkedAdSets(res.unlinked || []);
+    } catch { setUnlinkedAdSets([]); }
+    finally { setUnlinkedLoading(false); }
+  }, [projectId]);
+  useEffect(() => { loadUnlinked(); }, [loadUnlinked]);
+
+  const openLinkPicker = (metaAdSet) => {
+    setLinkTarget(metaAdSet);
+    const candidates = adSets.filter(a =>
+      !a.meta_adset_id && ['observing', 'ready', 'posted'].includes(a.lifecycle_status)
+    );
+    setLinkableAdSets(candidates);
+  };
+
+  const handleLink = async (cfAdSetId) => {
+    if (!linkTarget) return;
+    setLinking(true);
+    try {
+      await api.linkAdSet(projectId, {
+        cfAdSetId,
+        metaAdsetId: linkTarget.meta_adset_id,
+        metaCampaignId: linkTarget.campaign_id || null,
+        postedAt: linkTarget.created_time || new Date().toISOString(),
+      });
+      toast.success('Ad set linked successfully');
+      setLinkTarget(null);
+      loadUnlinked();
+      load();
+    } catch (err) {
+      toast.error(err.message || 'Link failed');
+    } finally { setLinking(false); }
+  };
 
   const rows = useMemo(() => (
     adSets.map((adSet) => ({
@@ -397,6 +443,91 @@ export default function ObservationTab({ projectId, project }) {
           meta={observationMeta}
         />
       </div>
+
+      {/* Phase 9 — Unobserved Ads (Meta ad sets not linked to CF) */}
+      {unlinkedAdSets.length > 0 && (
+        <div className="ed-card">
+          <button
+            onClick={() => setShowUnlinked(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3"
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-md bg-amber-500/10 flex items-center justify-center">
+                <svg className="w-3 h-3 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <span className="text-[13px] font-medium text-ed-ink">Unobserved Ads</span>
+              <span className="text-[11px] text-ed-ink3 bg-ed-bg px-2 py-0.5 rounded-full">{unlinkedAdSets.length}</span>
+            </div>
+            <svg className={`w-4 h-4 text-ed-ink3 transition-transform ${showUnlinked ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showUnlinked && (
+            <div className="px-5 pb-4 space-y-2">
+              <p className="text-[11px] text-ed-ink3 mb-3">
+                These Meta ad sets exist in your ad account but aren't linked to any ad set in this system. Link them to start observation tracking.
+              </p>
+              {unlinkedAdSets.map(m => (
+                <div key={m.meta_adset_id} className="flex items-center justify-between p-3 rounded-lg bg-ed-surface border border-ed-line">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-ed-ink truncate">{m.name}</p>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${m.status === 'ACTIVE' ? 'bg-ed-green/10 text-ed-green' : 'bg-ed-bg text-ed-ink3'}`}>
+                        {m.status}
+                      </span>
+                      {m.campaign_name && <span className="text-[10px] text-ed-ink3">{m.campaign_name}</span>}
+                      {m.created_time && <span className="text-[10px] text-ed-ink3">{new Date(m.created_time).toLocaleDateString()}</span>}
+                      {Number(m.spend) > 0 && <span className="text-[10px] text-ed-ink3">${Number(m.spend).toFixed(2)} spent</span>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => openLinkPicker(m)}
+                    className="shrink-0 text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 px-3 py-1.5 rounded-md border border-ed-accent/20 hover:bg-ed-accent/5 transition-colors"
+                  >
+                    Link
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Link picker modal */}
+      {linkTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setLinkTarget(null)}>
+          <div className="bg-ed-surface rounded-xl shadow-xl max-w-md w-full mx-4 max-h-[60vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-ed-line">
+              <h3 className="text-[14px] font-medium text-ed-ink">Link to CF Ad Set</h3>
+              <p className="text-[11px] text-ed-ink3 mt-0.5">Select which ad set to link "{linkTarget.name}" to:</p>
+            </div>
+            <div className="px-5 py-3 overflow-y-auto max-h-[40vh]">
+              {linkableAdSets.length === 0 ? (
+                <p className="text-[12px] text-ed-ink3 py-4 text-center">No eligible ad sets found. Ad sets must be in observation lifecycle and not already linked to Meta.</p>
+              ) : (
+                <div className="space-y-2">
+                  {linkableAdSets.map(a => (
+                    <button
+                      key={a.externalId}
+                      onClick={() => handleLink(a.externalId)}
+                      disabled={linking}
+                      className="w-full text-left p-3 rounded-lg border border-ed-line hover:border-ed-accent/30 hover:bg-ed-accent/5 transition-colors"
+                    >
+                      <p className="text-[13px] font-medium text-ed-ink">{a.name}</p>
+                      <p className="text-[10px] text-ed-ink3 mt-0.5">{a.lifecycle_status} · {a.ads_count || 0} ads</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-ed-line flex justify-end">
+              <button onClick={() => setLinkTarget(null)} className="text-[12px] text-ed-ink3 hover:text-ed-ink px-3 py-1.5">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-3.5">
         <VerdictCockpit counts={counts} total={counts.all} passRate={passRate} />

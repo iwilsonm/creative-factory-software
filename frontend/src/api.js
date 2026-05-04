@@ -868,4 +868,16 @@ export const api = {
     request(`/projects/${projectId}/angles/${angleId}/approve`, { method: 'POST' }),
   rejectSubAngle: (projectId, angleId) =>
     request(`/projects/${projectId}/angles/${angleId}/reject`, { method: 'POST' }),
+
+  // ────────────────────────────────────────────────
+  // Phase 9 — Reconciliation (link unobserved Meta ads to CF)
+  // ──���─────────────────────────────────────────────
+  getUnlinkedAdSets: (projectId) =>
+    request(`/projects/${projectId}/reconciliation/unlinked-adsets`),
+  getUnlinkedAds: (projectId, metaAdsetId) =>
+    request(`/projects/${projectId}/reconciliation/unlinked-ads?metaAdsetId=${metaAdsetId}`),
+  linkAdSet: (projectId, data) =>
+    request(`/projects/${projectId}/reconciliation/link-adset`, { method: 'POST', body: JSON.stringify(data) }),
+  linkAd: (projectId, data) =>
+    request(`/projects/${projectId}/reconciliation/link-ad`, { method: 'POST', body: JSON.stringify(data) }),
 };

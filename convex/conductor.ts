@@ -46,6 +46,18 @@ export const upsertConfig = mutation({
     sub_angle_min_active_for_health_bias: v.optional(v.number()),
     sub_angle_min_active_for_lineage_cap: v.optional(v.number()),
     sub_angle_per_project_daily_cost_cap_usd: v.optional(v.number()),
+    // Phase 9 — auto-posting
+    auto_post_enabled: v.optional(v.boolean()),
+    auto_post_max_daily_sets: v.optional(v.number()),
+    auto_post_max_daily_budget_cents: v.optional(v.number()),
+    auto_post_require_min_score: v.optional(v.number()),
+    auto_post_pause_on_error: v.optional(v.boolean()),
+    auto_post_error_threshold: v.optional(v.number()),
+    auto_post_consecutive_errors: v.optional(v.number()),
+    auto_post_paused_reason: v.optional(v.string()),
+    auto_post_today_count: v.optional(v.number()),
+    auto_post_today_date: v.optional(v.string()),
+    auto_post_last_posted_at: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -765,5 +777,70 @@ export const upsertPlaybook = mutation({
         created_at: now,
       });
     }
+  },
+});
+
+// =============================================
+// auto_post_log — audit trail for auto-posting
+// =============================================
+
+export const createAutoPostLog = mutation({
+  args: {
+    externalId: v.string(),
+    project_id: v.string(),
+    ad_set_id: v.string(),
+    meta_adset_id: v.optional(v.string()),
+    status: v.string(),
+    gate_reason: v.optional(v.string()),
+    error_message: v.optional(v.string()),
+    duration_ms: v.optional(v.number()),
+    created_at: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("auto_post_log", args);
+  },
+});
+
+export const getAutoPostLogsByProject = query({
+  args: { projectId: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const results = await ctx.db
+      .query("auto_post_log")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .order("desc")
+      .collect();
+    return results.slice(0, args.limit ?? 50);
+  },
+});
+
+// =============================================
+// reconciliation_log — audit trail for manual linking
+// =============================================
+
+export const createReconciliationLog = mutation({
+  args: {
+    externalId: v.string(),
+    project_id: v.string(),
+    action: v.string(),
+    cf_entity_id: v.string(),
+    cf_entity_type: v.string(),
+    meta_entity_id: v.string(),
+    linked_by: v.string(),
+    notes: v.optional(v.string()),
+    created_at: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("reconciliation_log", args);
+  },
+});
+
+export const getReconciliationLogsByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("reconciliation_log")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .order("desc")
+      .collect();
   },
 });
