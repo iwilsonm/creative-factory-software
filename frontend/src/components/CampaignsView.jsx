@@ -170,6 +170,25 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     return () => clearInterval(autosaveTimerRef.current);
   }, [sidebarData, sidebarForm.primary_texts, sidebarForm.ad_headlines]);
 
+  const parseFlexChildIds = (flex) => {
+    try {
+      return JSON.parse(flex?.child_deployment_ids || '[]');
+    } catch {
+      return [];
+    }
+  };
+
+  const resolveGroupedChildIds = (adSetId, childIds = []) => {
+    const declaredIds = new Set(childIds);
+    return deployments
+      .filter(dep =>
+        dep.local_adset_id === adSetId ||
+        dep.flex_ad_id === adSetId ||
+        declaredIds.has(dep.id)
+      )
+      .map(dep => dep.id);
+  };
+
   // ─── Auto-generate copy after flex ad creation ──────────────────────────
   useEffect(() => {
     if (combiningFlex || !autoGenFlexRef.current) return;
@@ -186,8 +205,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!newFlex) return;
 
     // Get child deployments for the sidebar
-    let childIds = [];
-    try { childIds = JSON.parse(newFlex.child_deployment_ids || '[]'); } catch { /* ignore */ }
+    const childIds = parseFlexChildIds(newFlex);
     const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
 
     // Open sidebar for the new flex ad
@@ -667,18 +685,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   const handleFlexAction = async (flexAdId, action) => {
     const flex = flexAds.find(f => f.id === flexAdId);
-    let childIds = [];
-    if (flex) {
-      try { childIds = JSON.parse(flex.child_deployment_ids || '[]'); } catch { /* ignore */ }
-    }
+    const childIds = parseFlexChildIds(flex);
+    const ownedChildIds = resolveGroupedChildIds(flexAdId, childIds);
     setFlexActionConfirm(null);
 
     if (action === 'ungroup') {
-      // Only affect children that actually belong to this flex ad
-      const ownedChildIds = childIds.filter(id => {
-        const dep = deployments.find(d => d.id === id);
-        return dep && dep.flex_ad_id === flexAdId;
-      });
       // Snapshot for undo. Phase 6.20b — server-side restore of an ungrouped
       // ad_set has no native equivalent; the local snapshot still gives
       // momentary visual undo.
@@ -702,11 +713,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'unplan') {
-      // Only affect children that actually belong to this flex ad
-      const ownedChildIds = childIds.filter(id => {
-        const dep = deployments.find(d => d.id === id);
-        return dep && dep.flex_ad_id === flexAdId;
-      });
       // Snapshot for undo. Phase 6.20b — server-side ad_set restore is not
       // natively supported; local snapshot still gives momentary visual undo.
       snapshotForUndo('unplan', async () => {
@@ -734,11 +740,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'remove') {
-      // Only delete child deployments that actually belong to this flex ad
-      const ownedChildIds = childIds.filter(id => {
-        const dep = deployments.find(d => d.id === id);
-        return dep && dep.flex_ad_id === flexAdId;
-      });
       // Snapshot for undo. Phase 6.20b — server-side ad_set restore is not
       // natively supported; deployments can still be restored individually.
       snapshotForUndo('remove', async () => {
@@ -1497,7 +1498,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 pb-4 flex flex-col gap-4 scrollbar-thin">
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 pb-28 flex flex-col gap-4 scrollbar-thin">
             {/* Image section */}
             {isFlex ? (
               <div className="space-y-2">
@@ -1543,12 +1544,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                               <p className="text-[11px] text-ed-ink mt-0.5">{d.ad.angle}</p>
                             </div>
                           )}
-                          {d.ad?.headline && (
-                            <div className="mt-1.5">
-                              <span className="text-[9px] uppercase tracking-[0.10em] text-ed-ink3">Headline</span>
-                              <p className="text-[11px] text-ed-ink mt-0.5">{d.ad.headline}</p>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1572,30 +1567,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 placeholder="Enter ad name..."
               />
             </div>
-
-            {/* Ad info (single ad only) */}
-            {!isFlex && dep?.ad && (
-              <div className="space-y-2.5 bg-ed-bg rounded-xl p-4">
-                {dep.ad.angle && (
-                  <div>
-                    <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Angle</label>
-                    <p className="text-[12px] text-ed-ink mt-0.5">{dep.ad.angle}</p>
-                  </div>
-                )}
-                {dep.ad.headline && (
-                  <div>
-                    <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Headline</label>
-                    <p className="text-[12px] text-ed-ink mt-0.5">{dep.ad.headline}</p>
-                  </div>
-                )}
-                {dep.ad.body_copy && (
-                  <div>
-                    <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Body Copy</label>
-                    <p className="text-[12px] text-ed-ink mt-0.5 whitespace-pre-wrap">{dep.ad.body_copy}</p>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* ─── Primary Text (collapsible) ─── */}
             <div className="order-[20] rounded-xl border border-ed-line overflow-hidden">
@@ -1755,164 +1726,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               )}
             </div>
 
-            {/* ─── Headlines (collapsible) ─── */}
-            <div className="order-[21] rounded-xl border border-ed-line overflow-hidden">
-              <div
-                onClick={() => setHeadlinesOpen(!headlinesOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-ed-bg hover:bg-ed-bg/80 transition-colors cursor-pointer select-none"
-              >
-                <div className="flex items-center gap-2">
-                  <svg className={`w-3.5 h-3.5 text-ed-ink2 transition-transform ${headlinesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                  <span className="text-[11px] font-serif text-ed-ink uppercase tracking-wider">Headline</span>
-                  {headlineThread.length > 2 && (
-                    <span className="text-[9px] text-ed-accent font-medium bg-[rgba(168,84,59,0.06)] px-1.5 py-0.5 rounded-full">
-                      Round {Math.floor(headlineThread.length / 2)}
-                    </span>
-                  )}
-                  <span className="text-[10px] font-mono-ed text-ed-ink3 bg-black/5 px-1.5 py-0.5 rounded-full">
-                    {sidebarForm.ad_headlines.filter(h => h.trim()).length}/5
-                  </span>
-                </div>
-              </div>
-              {headlinesOpen && (
-                <div className="p-4 space-y-3">
-                  {/* Creative direction input + Generate button */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">
-                        Creative Direction <span className="normal-case font-normal">(optional)</span>
-                      </label>
-                      {headlineThread.length > 0 && !generatingHeadlines && (
-                        <button
-                          onClick={() => { setHeadlineThread([]); setHeadlineDirection(''); setHeadlineDirectionHistory([]); }}
-                          className="text-[9px] text-ed-ink3 hover:text-ed-accent underline transition-colors"
-                        >
-                          Start over
-                        </button>
-                      )}
-                    </div>
-                    <textarea
-                      value={headlineDirection}
-                      onChange={(e) => setHeadlineDirection(e.target.value)}
-                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full"
-                      rows={2}
-                      placeholder={headlineThread.length > 0
-                        ? 'e.g. "Make them more urgent" or "Include a question format"'
-                        : 'e.g. "Curiosity-driven, short, punchy" or "Use numbers and stats"'}
-                    />
-                    <p className="text-[9px] text-ed-ink3 mt-1">
-                      {headlineThread.length > 0
-                        ? 'Each prompt builds on the last — tell Claude what to adjust and it\'ll refine the headlines.'
-                        : sidebarForm.primary_texts.filter(t => t.trim()).length === 0
-                          ? 'Generate primary text first. Headlines are based on the primary text variations.'
-                          : 'Optional — leave blank to auto-generate, or describe the style and angle you want.'}
-                    </p>
-                    {/* Direction history */}
-                    {headlineDirectionHistory.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-[9px] text-ed-ink3 font-medium uppercase tracking-wider">Previous directions</p>
-                        {headlineDirectionHistory.map((d, i) => (
-                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-ed-ink2 bg-ed-accent/5 rounded-lg px-2.5 py-1.5">
-                            <span className="text-ed-ink3 font-medium flex-shrink-0">{i + 1}.</span>
-                            <span className="break-words">{d}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* Generate / Refine button */}
-                    <button
-                      onClick={handleGenerateHeadlines}
-                      disabled={generatingHeadlines || sidebarForm.primary_texts.filter(t => t.trim()).length === 0}
-                      className="mt-2 w-full py-2 rounded-[7px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
-                      title={sidebarForm.primary_texts.filter(t => t.trim()).length === 0 ? 'Generate primary text first' : ''}
-                    >
-                      {generatingHeadlines ? (
-                        <>
-                          <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          {headlineThread.length > 0 ? 'Refining...' : 'Generating...'}
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          {headlineThread.length > 0 ? 'Refine' : 'Generate'}
-                        </>
-                      )}
-                    </button>
-                    {/* Undo — go back to previous round */}
-                    {headlineRoundHistory.length > 0 && !generatingHeadlines && (
-                      <button
-                        onClick={handleUndoHeadlines}
-                        className="mt-1.5 w-full py-1.5 rounded-lg border border-ed-line text-[10px] text-ed-ink2 hover:text-ed-accent hover:border-ed-accent/30 hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
-                        </svg>
-                        Previous round
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Divider */}
-                  {sidebarForm.ad_headlines.length > 0 && <div className="border-t border-ed-line" />}
-
-                  {sidebarForm.ad_headlines.map((h, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-[10px] text-ed-ink3 font-medium w-4 flex-shrink-0">{i + 1}.</span>
-                      <input
-                        type="text"
-                        value={h}
-                        onChange={(e) => {
-                          const updated = [...sidebarForm.ad_headlines];
-                          updated[i] = e.target.value;
-                          setSidebarForm(prev => ({ ...prev, ad_headlines: updated }));
-                        }}
-                        className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] flex-1"
-                        placeholder={`Headline ${i + 1}...`}
-                      />
-                      <button
-                        onClick={() => setSidebarForm(prev => ({
-                          ...prev,
-                          ad_headlines: prev.ad_headlines.filter((_, idx) => idx !== i),
-                        }))}
-                        className="text-ed-ink3 hover:text-red-500 transition-colors flex-shrink-0"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                  {sidebarForm.ad_headlines.length < 5 && (
-                    <button
-                      onClick={() => setSidebarForm(prev => ({ ...prev, ad_headlines: [...prev.ad_headlines, ''] }))}
-                      className="w-full py-2 rounded-lg border border-dashed border-ed-line text-[11px] text-ed-ink2 hover:border-ed-accent/30 hover:text-ed-accent hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      Add Headline
-                    </button>
-                  )}
-                  {sidebarForm.ad_headlines.length === 0 && !generatingHeadlines && (
-                    <p className="text-[11px] text-ed-ink3 italic text-center py-2">
-                      {sidebarForm.primary_texts.filter(t => t.trim()).length === 0
-                        ? 'Generate primary text first, then generate headlines.'
-                        : 'No headlines yet. Click Generate above or Add Headline.'}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
             {/* ─── Notes ─── */}
-            <div className="order-[30] border-t border-ed-line pt-4 mt-2">
+            <div className="order-[30]">
               <label className="text-[11px] text-ed-ink2 font-medium block mb-1">Notes <span className="text-ed-ink3">(optional)</span></label>
               <textarea
                 value={sidebarForm.notes}
@@ -1924,7 +1739,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Campaign & Placement ─── */}
-            <div className="order-[10] border-t border-ed-line pt-4 mt-2">
+            <div className="order-[10]">
               <h4 className="text-[11px] font-serif text-ed-ink2 uppercase tracking-wider mb-3">Campaign & Placement</h4>
 
               {/* Campaign dropdown */}
@@ -1966,7 +1781,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
             </div>
           </div>
-          <div className="border-t border-ed-line bg-ed-surface px-5 py-3 flex items-center justify-end gap-2">
+          <div className="flex-shrink-0 border-t border-ed-line bg-ed-surface px-5 py-3 flex items-center justify-end gap-2">
             <button
               onClick={closeSidebar}
               disabled={sidebarSaving}
