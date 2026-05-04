@@ -679,6 +679,58 @@ describe('conductorEngine test-run pipeline', () => {
       ready_to_post_count: 10,
     }));
   });
+
+  it('repairs grouping-failed test runs without creating new image batches', async () => {
+    const roundsJson = JSON.stringify([
+      {
+        round: 1,
+        batch_id: 'batch-uuid-1',
+        angle_name: 'The Sleep Hacks Are Exhausting',
+        ads_generated: 1,
+        ads_scored: 1,
+        ads_passed: 1,
+        cumulative_passed: 1,
+        passing_ads: [
+          { ad_id: 'round-1-pass-0', headline: 'Approved headline', overall_score: 8.1 },
+        ],
+      },
+    ]);
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: Date.parse('2026-05-04T10:00:00Z'),
+        status: 'failed',
+        terminal_status: 'grouping_failed',
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 1, round: 1 },
+        ]),
+        rounds_json: roundsJson,
+        total_ads_generated: 1,
+        total_ads_scored: 1,
+        total_ads_passed: 1,
+        required_passes: 1,
+        ads_per_round: 1,
+      },
+    ]);
+    mockGetAdsByBatchId.mockResolvedValue([makePassingAds(1, 1)[0].ad]);
+
+    const { repairDeployFailedTestRun } = await importConductorEngine();
+    const result = await repairDeployFailedTestRun('proj-1', 'run-uuid-1');
+
+    expect(result).toMatchObject({
+      repaired: true,
+      status: 'deployed',
+      runId: 'run-uuid-1',
+    });
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj-1',
+      batchId: 'batch-uuid-1',
+      targetCount: 1,
+    }));
+  });
 });
 
 describe('conductorEngine Director ad-set top-up helpers', () => {

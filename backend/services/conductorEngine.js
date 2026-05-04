@@ -580,6 +580,8 @@ async function finalizeSlotIfReady({ slot, batchesById, projectId, targetCount, 
   if (!flexAdId) {
     const reason = finalizeResult.grouping_failed
       ? `qa_target_met_but_grouping_failed_${progress.passedCount}_of_${targetCount}`
+      : finalizeResult.copy_error
+        ? `qa_target_met_but_copy_failed: ${finalizeResult.copy_error}`
       : finalizeResult.deploy_error
         ? `qa_target_met_but_deploy_failed: ${finalizeResult.deploy_error}`
         : `qa_target_met_but_finalize_failed_${progress.passedCount}_of_${targetCount}`;
@@ -2433,8 +2435,9 @@ export async function repairDeployFailedTestRun(projectId, runId) {
     throw new Error(`Run ${runId} is not a Creative Director test run.`);
   }
 
-  if (run.terminal_status !== 'deploy_failed') {
-    throw new Error(`Run ${runId} is not in deploy_failed status.`);
+  const repairableStatuses = new Set(['deploy_failed', 'grouping_failed', 'copy_failed']);
+  if (!repairableStatuses.has(run.terminal_status)) {
+    throw new Error(`Run ${runId} is not in a repairable finalization status.`);
   }
 
   const requiredPasses = getTestRunTargetFromRun(run);
@@ -2463,13 +2466,22 @@ export async function repairDeployFailedTestRun(projectId, runId) {
   });
 
   if (finalizeResult.flex_ads_created === 0) {
-    const failureReason = finalizeResult.grouping_failed
-      ? `${cumulativePassingAds.length} approved ads were available, but grouping could not create an ad set.`
-      : `Reached ${cumulativePassingAds.length}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error || 'Unknown deployment error'}`;
+    let failureReason;
+    let terminalStatus;
+    if (finalizeResult.grouping_failed) {
+      terminalStatus = 'grouping_failed';
+      failureReason = `${cumulativePassingAds.length} approved ads were available, but grouping could not create an ad set.`;
+    } else if (finalizeResult.copy_error) {
+      terminalStatus = 'copy_failed';
+      failureReason = `Reached ${cumulativePassingAds.length}/${requiredPasses} passed ads, but final copy generation failed: ${finalizeResult.copy_error}`;
+    } else {
+      terminalStatus = 'deploy_failed';
+      failureReason = `Reached ${cumulativePassingAds.length}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error || 'Unknown deployment error'}`;
+    }
 
     await updateConductorRun(runId, {
       status: 'failed',
-      terminal_status: finalizeResult.grouping_failed ? 'grouping_failed' : 'deploy_failed',
+      terminal_status: terminalStatus,
       error: failureReason,
       failure_reason: failureReason,
       error_stage: 'deploy_repair',
@@ -2488,14 +2500,14 @@ export async function repairDeployFailedTestRun(projectId, runId) {
         totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
         totalAdsPassed: cumulativePassingAds.length,
         requiredPasses,
-        terminalStatus: finalizeResult.grouping_failed ? 'grouping_failed' : 'deploy_failed',
+        terminalStatus,
         failureReason,
       }),
     });
 
     return {
       repaired: false,
-      status: finalizeResult.grouping_failed ? 'grouping_failed' : 'deploy_failed',
+      status: terminalStatus,
       runId,
       failureReason,
     };
@@ -2514,7 +2526,7 @@ export async function repairDeployFailedTestRun(projectId, runId) {
     requiredPasses,
     finalizeResult,
     durationMs: Number(run.duration_ms) || (Date.now() - (Number(run.run_at) || Date.now())),
-    triggerLabel: 'deploy repair',
+    triggerLabel: 'finalization repair',
   });
 
   return {
@@ -2798,6 +2810,9 @@ async function continueBackgroundTestRun(run) {
         if (finalizeResult.grouping_failed) {
           failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
           terminalStatus = 'grouping_failed';
+        } else if (finalizeResult.copy_error) {
+          failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads, but final copy generation failed: ${finalizeResult.copy_error}`;
+          terminalStatus = 'copy_failed';
         } else if (finalizeResult.deploy_error) {
           failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
         }
@@ -3531,6 +3546,9 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           if (finalizeResult.grouping_failed) {
             failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
             terminalStatus = 'grouping_failed';
+          } else if (finalizeResult.copy_error) {
+            failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads, but final copy generation failed: ${finalizeResult.copy_error}`;
+            terminalStatus = 'copy_failed';
           } else if (finalizeResult.deploy_error) {
             failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
           }

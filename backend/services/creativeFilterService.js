@@ -59,6 +59,126 @@ async function safeCreateAutoPostLog(entry) {
   }
 }
 
+function getScoredAdId(entry) {
+  return entry?.ad?.id || entry?.ad_id || entry?.id || '';
+}
+
+function getScoredAdScore(entry) {
+  return Number(entry?.score?.overall_score ?? entry?.overall_score ?? 0) || 0;
+}
+
+function getScoredAdHeadline(entry) {
+  return entry?.ad?.headline || entry?.headline || 'Approved ad creative';
+}
+
+function getScoredAdPrimaryText(entry) {
+  return entry?.ad?.body_copy || entry?.primary_text || entry?.body_copy || 'Approved ad creative.';
+}
+
+function buildDeterministicAdSet(scoredAds, projectName, imageTarget, reason = 'Deterministic fallback from approved ads') {
+  const ranked = [...ensureScoredAdsArray(scoredAds)]
+    .filter((entry) => getScoredAdId(entry))
+    .sort((a, b) => getScoredAdScore(b) - getScoredAdScore(a));
+  const selected = [];
+  const seen = new Set();
+  for (const entry of ranked) {
+    const id = getScoredAdId(entry);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    selected.push(entry);
+    if (selected.length >= imageTarget) break;
+  }
+  if (selected.length < imageTarget) return null;
+
+  const angleTheme = selected.find((entry) => entry?.score?.angle_category)?.score?.angle_category
+    || selected.find((entry) => entry?.ad?.angle_name)?.ad?.angle_name
+    || selected.find((entry) => entry?.ad?.angle)?.ad?.angle
+    || projectName
+    || 'Approved ad set';
+  const headlines = selected.map((entry) => ({
+    text: getScoredAdHeadline(entry),
+    source_ad_id: getScoredAdId(entry),
+    spelling_clean: true,
+  }));
+  const primaryTexts = selected.map((entry) => ({
+    text: getScoredAdPrimaryText(entry),
+    source_ad_id: getScoredAdId(entry),
+    first_line_hook_strong: true,
+    has_cta_at_end: true,
+    spelling_clean: true,
+  }));
+
+  return {
+    flex_ad_number: 1,
+    angle_theme: angleTheme,
+    headlines,
+    primary_texts: primaryTexts,
+    headline_count: headlines.length,
+    primary_text_count: primaryTexts.length,
+    meets_minimum: true,
+    image_ad_ids: selected.map((entry) => getScoredAdId(entry)),
+    avg_score: Math.round((selected.reduce((sum, entry) => sum + getScoredAdScore(entry), 0) / selected.length) * 10) / 10,
+    reasoning: reason,
+  };
+}
+
+function ensureScoredAdsArray(scoredAds) {
+  return Array.isArray(scoredAds) ? scoredAds : [];
+}
+
+function normalizeGroupedAdSet(group, scoredAds, projectName, imageTarget) {
+  const approvedById = new Map();
+  for (const entry of ensureScoredAdsArray(scoredAds)) {
+    const id = getScoredAdId(entry);
+    if (id) approvedById.set(id, entry);
+  }
+  const selectedIds = [];
+  const seen = new Set();
+  for (const id of Array.isArray(group?.image_ad_ids) ? group.image_ad_ids : []) {
+    if (!id || seen.has(id) || !approvedById.has(id)) continue;
+    selectedIds.push(id);
+    seen.add(id);
+    if (selectedIds.length >= imageTarget) break;
+  }
+  if (selectedIds.length < imageTarget) {
+    const fallback = buildDeterministicAdSet(scoredAds, projectName, imageTarget, 'Filled missing image IDs from approved ads');
+    if (!fallback) return null;
+    for (const id of fallback.image_ad_ids) {
+      if (!seen.has(id)) {
+        selectedIds.push(id);
+        seen.add(id);
+      }
+      if (selectedIds.length >= imageTarget) break;
+    }
+  }
+  if (selectedIds.length < imageTarget) return null;
+
+  const selectedEntries = selectedIds.map((id) => approvedById.get(id)).filter(Boolean);
+  const fallback = buildDeterministicAdSet(selectedEntries, projectName, imageTarget, 'Normalized approved ad set');
+  if (!fallback) return null;
+
+  const headlines = Array.isArray(group?.headlines) && group.headlines.length > 0
+    ? group.headlines
+    : fallback.headlines;
+  const primaryTexts = Array.isArray(group?.primary_texts) && group.primary_texts.length > 0
+    ? group.primary_texts
+    : fallback.primary_texts;
+
+  return {
+    ...group,
+    flex_ad_number: group?.flex_ad_number || 1,
+    angle_theme: group?.angle_theme || fallback.angle_theme,
+    headlines,
+    primary_texts: primaryTexts,
+    headline_count: headlines.length,
+    primary_text_count: primaryTexts.length,
+    meets_minimum: true,
+    image_ad_ids: selectedIds.slice(0, imageTarget),
+    avg_score: Number(group?.avg_score) || fallback.avg_score,
+    reasoning: group?.reasoning || fallback.reasoning,
+  };
+}
+
 function clampScore(value, fallback = 0) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -440,8 +560,7 @@ You have a set of scored ad creatives that all passed quality filtering. You nee
 1. GROUP them by angle/theme into distinct clusters
 2. SELECT the ${flexAdCount} strongest clusters (most coherent angle + highest avg scores)
 3. PICK the best ${targetImages} ads from each cluster
-4. SELECT 3-5 HEADLINES for each cluster (Meta will test combinations)
-5. SELECT 3-5 PRIMARY TEXTS for each cluster (Meta will test combinations)
+4. INCLUDE any available headline/primary-text context from the selected ads
 
 BRAND: ${projectName}
 
@@ -449,10 +568,9 @@ BRAND: ${projectName}
 
 Each ad set contains:
 - ${targetImages} image ads
-- 3-5 headlines (Meta rotates and tests which performs best)
-- 3-5 primary texts (Meta rotates and tests which performs best)
+- final Meta primary texts and headlines will be generated in the next step
 
-Target 5 of each, but minimum 3 are required. If you cannot find at least 3 quality headlines or 3 quality primary texts for a cluster, DO NOT create that ad set — skip it.
+Do not reject or skip an ad set because the approved image ads do not already contain 3-5 headlines or primary texts. This step is only selecting approved image ads for the ad set.
 
 === CRITICAL COPY QUALITY RULES ===
 
@@ -462,7 +580,7 @@ EVERY headline and primary text you select MUST meet ALL of these. Do not includ
 
 2. FIRST LINE HOOK (primary texts only): Every primary text MUST have a strong, compelling first line — a pattern interrupt, curiosity gap, bold claim, or emotional opener. This is what people see before clicking 'see more'. Weak first line = do not include it.
 
-3. CTA AT END (primary texts only): Every primary text MUST end with a clear call to action. No CTA = do not include it.
+3. CTA AT END (primary texts only): If you include an existing primary text, it should end with a clear call to action.
 
 4. THEMATIC ALIGNMENT: Every headline and every primary text must fit the cluster's angle. They do not all need to come from the same ad, but they must all speak to the same core theme/pain point/desire.
 
@@ -475,8 +593,8 @@ ${JSON.stringify(adsPayload, null, 2)}
 
 RULES:
 - Each ad set must have exactly ${targetImages} image ads
-- Each ad set gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
-- If a cluster cannot produce at least 3 quality headlines AND 3 quality primary texts, skip it and try the next best cluster
+- Existing headline/primary-text context is optional; final copy is generated after image grouping
+- Do not skip a valid image group because of missing or limited existing copy
 - The ${flexAdCount} ad sets should target DIFFERENT angles for audience variety
 - Prefer ads with higher overall_score within each cluster
 - If two ads in the same cluster are nearly identical, prefer the one with higher copy_strength
@@ -504,8 +622,8 @@ Respond ONLY with this exact JSON format:
           "spelling_clean": true
         }
       ],
-      "headline_count": <3-5>,
-      "primary_text_count": <3-5>,
+      "headline_count": <number of provided headline items>,
+      "primary_text_count": <number of provided primary text items>,
       "meets_minimum": true,
       "image_ad_ids": ["ad_id_1", "ad_id_2", "... ${targetImages} total"],
       "avg_score": <average overall_score of selected ads>,
@@ -521,7 +639,32 @@ Respond ONLY with this exact JSON format:
     if (!parsed || !Array.isArray(parsed.flex_ads)) {
       return null;
     }
-    return { ...parsed, grouping_model: model };
+    const normalizedFlexAds = parsed.flex_ads
+      .map((group) => normalizeGroupedAdSet(group, scoredAds, projectName, targetImages))
+      .filter(Boolean)
+      .slice(0, flexAdCount);
+    if (normalizedFlexAds.length === 0) return null;
+    return { ...parsed, flex_ads: normalizedFlexAds, grouping_model: model };
+  };
+
+  const fallbackGrouping = (reason) => {
+    const fallback = buildDeterministicAdSet(scoredAds, projectName, targetImages, reason);
+    if (!fallback) {
+      return {
+        flex_ads: [],
+        rejected_from_grouping: scoredAds.map((entry) => getScoredAdId(entry)).filter(Boolean),
+        skipped_clusters: [`Not enough approved image ads to create an ad set with ${targetImages} ads.`],
+        grouping_model: 'deterministic_fallback',
+      };
+    }
+    return {
+      flex_ads: [fallback],
+      rejected_from_grouping: scoredAds
+        .map((entry) => getScoredAdId(entry))
+        .filter((id) => id && !fallback.image_ad_ids.includes(id)),
+      skipped_clusters: [],
+      grouping_model: 'deterministic_fallback',
+    };
   };
 
   try {
@@ -543,18 +686,20 @@ Respond ONLY with this exact JSON format:
     console.warn(`[FilterService] ${GROUP_MODEL} grouping failed; falling back to ${GROUP_FALLBACK_MODEL}: ${err.message}`);
   }
 
-  const responseText = await chat(
-    [{ role: 'user', content: prompt }],
-    GROUP_FALLBACK_MODEL,
-    { max_tokens: 8192, temperature: 0, operation: 'filter_group_ads_fallback', projectId }
-  );
+  try {
+    const responseText = await chat(
+      [{ role: 'user', content: prompt }],
+      GROUP_FALLBACK_MODEL,
+      { max_tokens: 8192, temperature: 0, operation: 'filter_group_ads_fallback', projectId }
+    );
 
-  const parsed = parseGrouping(responseText, GROUP_FALLBACK_MODEL);
-  if (!parsed) {
-    console.warn('[FilterService] Failed to parse grouping result');
-    return { flex_ads: [], error: 'parse_failed' };
+    const parsed = parseGrouping(responseText, GROUP_FALLBACK_MODEL);
+    if (parsed) return parsed;
+  } catch (err) {
+    console.warn(`[FilterService] ${GROUP_FALLBACK_MODEL} grouping failed: ${err.message}`);
   }
-  return parsed;
+  console.warn('[FilterService] Failed to parse grouping result; using deterministic approved-ad fallback');
+  return fallbackGrouping('Grouping model failed; used top approved ads');
 }
 
 // ── Generate fresh copy for flex ads ───────────────────────────────────────
@@ -716,6 +861,30 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }`;
 
   console.log(`[FilterService] Generated ${primaryTexts.length} primary texts + ${headlines.length} headlines (${dedupedHeadlines.length} kept) for ${project.name} (${angleTheme})`);
   return { primary_texts: primaryTexts, headlines: dedupedHeadlines.length > 0 ? dedupedHeadlines : headlines.slice(0, HEADLINES_TARGET) };
+}
+
+async function generateRequiredFilterCopy(projectId, angleTheme, adCreatives, attempts = 2) {
+  let lastResult = { primary_texts: [], headlines: [] };
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      lastResult = await generateFilterCopy(projectId, angleTheme, adCreatives);
+      const primaryTexts = Array.isArray(lastResult.primary_texts) ? lastResult.primary_texts.filter(Boolean) : [];
+      const headlines = Array.isArray(lastResult.headlines) ? lastResult.headlines.filter(Boolean) : [];
+      if (primaryTexts.length >= PRIMARY_TEXTS_MIN && headlines.length >= HEADLINES_MIN) {
+        return { primary_texts: primaryTexts.slice(0, PRIMARY_TEXTS_TARGET), headlines: headlines.slice(0, HEADLINES_TARGET) };
+      }
+      lastError = new Error(`Generated ${primaryTexts.length}/${PRIMARY_TEXTS_MIN} primary texts and ${headlines.length}/${HEADLINES_MIN} headlines.`);
+      console.warn(`[FilterService] Final copy generation attempt ${attempt}/${attempts} returned too few items: ${lastError.message}`);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[FilterService] Final copy generation attempt ${attempt}/${attempts} failed: ${err.message}`);
+    }
+  }
+  const primaryCount = Array.isArray(lastResult.primary_texts) ? lastResult.primary_texts.filter(Boolean).length : 0;
+  const headlineCount = Array.isArray(lastResult.headlines) ? lastResult.headlines.filter(Boolean).length : 0;
+  const reason = lastError?.message || `Generated ${primaryCount}/${PRIMARY_TEXTS_MIN} primary texts and ${headlineCount}/${HEADLINES_MIN} headlines.`;
+  throw new Error(`Final copy generation failed: ${reason}`);
 }
 
 // ── Deploy flex ad to Ready to Post ────────────────────────────────────────
@@ -1109,7 +1278,20 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
     return found ? found.ad : { headline: '', body_copy: '', angle: '' };
   });
 
-  const generatedCopy = await generateFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
+  let generatedCopy;
+  try {
+    generatedCopy = await generateRequiredFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
+  } catch (err) {
+    console.error(`[FilterService] Final copy generation failed: ${err.message}`);
+    return {
+      ad_sets_created: 0,
+      ad_set_id: null,
+      flex_ads_created: 0,
+      flex_ad_id: null,
+      ready_to_post_count: 0,
+      copy_error: err.message,
+    };
+  }
 
   emit({
     type: 'progress',
