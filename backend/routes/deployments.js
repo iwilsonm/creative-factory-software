@@ -49,6 +49,7 @@ function compactDeploymentAd(ad) {
   if (!ad) return null;
   return {
     angle: ad.angle || null,
+    angle_name: ad.angle_name || null,
     headline: ad.headline || null,
     body_copy: ad.body_copy || null,
     tags: ad.tags || [],
@@ -134,6 +135,7 @@ router.get('/deployments', async (req, res) => {
                 id: fullAd.id,
                 project_id: fullAd.project_id,
                 angle: fullAd.angle,
+                angle_name: fullAd.angle_name,
                 headline: fullAd.headline,
                 body_copy: fullAd.body_copy,
                 tags: fullAd.tags || [],

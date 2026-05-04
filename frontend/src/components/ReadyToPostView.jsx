@@ -33,6 +33,7 @@ function composeFlexFromAdSet(adSet, deployments) {
     duplicate_adset_name: sample.duplicate_adset_name || '',
     notes: sample.notes || '',
     angle_id: adSet.angle_id || null,
+    angle_name: adSet.angle_name || sample.ad?.angle_name || sample.ad?.angle || '',
     lifecycle_status: adSet.lifecycle_status || '',
     ready_source: adSet.ready_source || '',
     ready_at: adSet.ready_at || '',
@@ -301,6 +302,21 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     children.find(d => d.created_at)?.created_at ||
     ''
   );
+
+  const extractDirectorAngleFromName = (name = '') => {
+    const match = String(name || '').match(/^Director\s+—\s+(.+?)\s+#\d+\s+—/);
+    return match?.[1]?.trim() || '';
+  };
+
+  const resolveAngleName = (item, children = []) => {
+    return (
+      item?.angle_name ||
+      children.find(d => d.ad?.angle_name)?.ad?.angle_name ||
+      children.find(d => d.ad?.angle)?.ad?.angle ||
+      extractDirectorAngleFromName(item?.name || '') ||
+      ''
+    );
+  };
 
   // ── Notes ──────────────────────────────────────────────────────────────
 
@@ -1045,8 +1061,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
-  const OriginMeta = ({ source, timestamp, fallbackName }) => (
+  const OriginMeta = ({ source, timestamp, fallbackName, angleName }) => (
     <div className="flex flex-wrap items-center gap-2 text-[11px] text-ed-ink2">
+      {angleName && (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-ed-bg border border-ed-line">
+          <span className="font-semibold text-ed-ink">Angle:</span>
+          {angleName}
+        </span>
+      )}
       <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-ed-bg border border-ed-line">
         <span className="font-semibold text-ed-ink">Source:</span>
         {formatReadySource(source, fallbackName)}
@@ -1676,6 +1698,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             source={dep.ready_source || ''}
             timestamp={resolveReadyTimestamp(dep)}
             fallbackName={name}
+            angleName={resolveAngleName(dep)}
           />
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
@@ -1874,6 +1897,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             source={flexAd.ready_source || ''}
             timestamp={resolveReadyTimestamp(flexAd, childDeps)}
             fallbackName={flexAd.name || ''}
+            angleName={resolveAngleName(flexAd, childDeps)}
           />
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
