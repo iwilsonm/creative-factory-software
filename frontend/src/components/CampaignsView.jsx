@@ -16,6 +16,7 @@ function composeFlexFromAdSet(adSet, deployments) {
     id: adSet.externalId,
     externalId: adSet.externalId,
     project_id: adSet.project_id,
+    campaign_id: adSet.campaign_id,
     ad_set_id: adSet.externalId,
     name: adSet.name || '',
     child_deployment_ids: JSON.stringify(children.map(d => d.externalId)),
@@ -187,6 +188,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         declaredIds.has(dep.id)
       )
       .map(dep => dep.id);
+  };
+
+  const resolvePlannerItemDeploymentIds = (ids = []) => {
+    const resolved = [];
+    for (const id of ids) {
+      if (deployments.some(d => d.id === id)) {
+        resolved.push(id);
+        continue;
+      }
+      const flex = flexAds.find(f => f.id === id);
+      if (flex) {
+        resolved.push(...resolveGroupedChildIds(flex.id, parseFlexChildIds(flex)));
+      }
+    }
+    return [...new Set(resolved)];
   };
 
   // ─── Auto-generate copy after flex ad creation ──────────────────────────
@@ -584,6 +600,74 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     } catch {
       addToast('Failed to move to queue — retrying...', 'error');
       try { await api.unassignFromAdSet(ids); } catch { loadDeployments(); }
+    }
+  };
+
+  const handleDropOnAdSet = async (e, targetFlexAd) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(null);
+    let ids;
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      ids = data.deploymentIds;
+    } catch { return; }
+    if (!ids?.length || !targetFlexAd?.id) return;
+
+    const targetAdSetId = targetFlexAd.ad_set_id || targetFlexAd.id;
+    const targetCampaignId = targetFlexAd.campaign_id || adSets.find(a => a.id === targetAdSetId)?.campaign_id;
+    if (!targetCampaignId) {
+      addToast('This ad set needs a campaign before ads can be moved into it.', 'error');
+      return;
+    }
+
+    const targetChildIds = new Set(resolveGroupedChildIds(targetAdSetId, parseFlexChildIds(targetFlexAd)));
+    const deploymentIds = resolvePlannerItemDeploymentIds(ids).filter(id => !targetChildIds.has(id));
+    if (deploymentIds.length === 0) {
+      addToast('Those ads are already in this ad set', 'info');
+      dragIdsRef.current = null;
+      setDragVisual(null);
+      return;
+    }
+
+    const previousAssignments = deploymentIds.map(id => {
+      const dep = deployments.find(d => d.id === id);
+      return {
+        id,
+        local_campaign_id: dep?.local_campaign_id || 'planned',
+        local_adset_id: dep?.local_adset_id || '',
+        flex_ad_id: dep?.flex_ad_id || '',
+      };
+    });
+    snapshotForUndo(`move ${deploymentIds.length}`, async () => {
+      await Promise.all(previousAssignments.map(({ id, ...fields }) => api.updateDeployment(id, fields)));
+      await loadCampaignData(true);
+    });
+
+    setDeployments(prev => prev.map(d =>
+      deploymentIds.includes(d.id)
+        ? { ...d, local_campaign_id: targetCampaignId, local_adset_id: targetAdSetId, flex_ad_id: '' }
+        : d
+    ));
+    setFlexAds(prev => prev.map(f => {
+      const currentIds = parseFlexChildIds(f).filter(id => !deploymentIds.includes(id));
+      if (f.id === targetAdSetId || f.ad_set_id === targetAdSetId) {
+        return { ...f, child_deployment_ids: JSON.stringify([...new Set([...currentIds, ...deploymentIds])]) };
+      }
+      return { ...f, child_deployment_ids: JSON.stringify(currentIds) };
+    }));
+    setSelectedInStaging(new Set());
+    setSelectedUnplanned(new Set());
+    dragIdsRef.current = null;
+    setDragVisual(null);
+
+    try {
+      await api.assignToAdSet(deploymentIds, targetCampaignId, targetAdSetId);
+      addToast(`Moved ${deploymentIds.length} ad${deploymentIds.length !== 1 ? 's' : ''} into ad set`, 'success');
+      await refreshPlannerData();
+    } catch (err) {
+      addToast(err.message || 'Failed to move ads into ad set', 'error');
+      await refreshPlannerData().catch(() => Promise.all([loadCampaignData(true), loadDeployments()]));
     }
   };
 
@@ -1270,13 +1354,23 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     const isSelected = selectedInStaging.has(flexAd.id);
     const placement = resolveFlexPlacement(flexAd);
     const isExpanded = expandedAdSetIds.has(flexAd.id);
+    const isDropTarget = dropTarget === `adset:${flexAd.id}`;
 
     return (
       <div
         key={flexAd.id}
         className={`relative group rounded-xl border transition-all overflow-hidden ${
+          isDropTarget ? 'border-ed-accent bg-ed-accent/10 ring-2 ring-ed-accent/30' :
           isSelected ? 'border-ed-accent/40 bg-[rgba(168,84,59,0.06)]' : 'border-ed-line bg-ed-surface hover:border-ed-accent/20'
         }`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'move';
+          setDropTarget(`adset:${flexAd.id}`);
+        }}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDropOnAdSet(e, flexAd)}
       >
         <div className="flex items-center gap-2.5 p-2">
           {/* Checkbox */}
@@ -1491,11 +1585,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 Ad Details
               </h3>
             </div>
-            <button onClick={closeSidebar} className="p-1.5 rounded-lg hover:bg-ed-bg text-ed-ink3 hover:text-ed-ink transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleSaveSidebar({ closeAfter: true })}
+                disabled={sidebarSaving}
+                className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+              >
+                {sidebarSaving ? 'Saving...' : 'Save & Close'}
+              </button>
+              <button onClick={closeSidebar} className="p-1.5 rounded-lg hover:bg-ed-bg text-ed-ink3 hover:text-ed-ink transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto p-5 pb-28 flex flex-col gap-4 scrollbar-thin">

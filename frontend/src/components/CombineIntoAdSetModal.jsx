@@ -74,7 +74,7 @@ export default function CombineIntoAdSetModal({
   const newCampaignValid = campaignMode === 'new'
     ? newCampaignTrimmed.length >= 1 && newCampaignTrimmed.length <= 80 && NAME_PATTERN.test(newCampaignTrimmed)
     : true;
-  const campaignValid = campaignMode === 'existing' ? !!existingCampaignId : newCampaignValid;
+  const campaignValid = campaignMode === 'existing' ? true : newCampaignValid;
   const canSave = nameValid && campaignValid && deploymentIds.length > 0 && !lockError && !saving;
 
   const handleSave = async () => {
@@ -88,7 +88,7 @@ export default function CombineIntoAdSetModal({
       };
       if (campaignMode === 'new') {
         body.create_new_campaign = newCampaignTrimmed;
-      } else {
+      } else if (existingCampaignId) {
         body.campaign_id = existingCampaignId;
       }
       const result = await api.createAdSetFromAds(projectId, body);
@@ -112,7 +112,7 @@ export default function CombineIntoAdSetModal({
             <InfoTooltip text="An ad set groups selected ads under one campaign/ad-set name for Ready to Post and Meta posting." position="right" />
           </h2>
           <p className="text-[11px] text-ed-ink2 mt-0.5">
-            Grouping {deploymentIds.length} ad{deploymentIds.length === 1 ? '' : 's'} into a new ad set. You can expand it later to review the ads inside.
+            Grouping {deploymentIds.length} ad{deploymentIds.length === 1 ? '' : 's'} into a new ad set. Choose a campaign now, or leave it blank to use this project&apos;s default campaign.
           </p>
         </div>
 
@@ -148,8 +148,8 @@ export default function CombineIntoAdSetModal({
           {/* Campaign picker */}
           <div>
             <label className="text-[12px] font-medium text-ed-ink mb-1 flex items-center gap-1">
-              Campaign <span className="text-ed-rust">*</span>
-              <InfoTooltip text="Choose the campaign where this ad set belongs, or create a new local campaign name now." position="right" />
+              Campaign <span className="text-ed-ink3 font-normal">(optional)</span>
+              <InfoTooltip text="Choose the campaign where this ad set belongs, create a new local campaign name, or leave blank to use the project's default campaign." position="right" />
             </label>
             <div className="flex items-center gap-3 mb-2">
               <label className="flex items-center gap-1.5 text-[12px] cursor-pointer">
@@ -175,7 +175,7 @@ export default function CombineIntoAdSetModal({
                 onChange={(e) => setExistingCampaignId(e.target.value)}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[13px] w-full"
               >
-                <option value="">— Pick a campaign —</option>
+                <option value="">Use project default campaign</option>
                 {(campaigns || []).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
