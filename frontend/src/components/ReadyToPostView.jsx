@@ -2243,11 +2243,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>
       )}
 
-      {!isPoster && selectedCards.size > 0 && typeof document !== 'undefined' && createPortal(
+      {!isPoster && selectedCards.size > 0 && !bulkEditing && !bulkDeleteConfirm && typeof document !== 'undefined' && createPortal(
         <div className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-fit sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 bottom-4 z-[70] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-ed-accent/20 bg-ed-surface/95 px-3 py-2 shadow-lg shadow-ed-ink/10 backdrop-blur pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <span className="text-[11px] text-ed-accent font-semibold mr-1">{selectedCards.size} selected</span>
           <button
-            onClick={async () => {
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={async (e) => {
+              e.stopPropagation();
               setBulkMarking(true);
               try {
                 const updates = [];
@@ -2262,6 +2265,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     updates.push(api.updateDeploymentStatus(cardKey, 'posted'));
                   }
                 }
+                if (updates.length === 0) {
+                  addToast('Selected ads are no longer available. Refreshing...', 'error');
+                  await loadDeployments();
+                  return;
+                }
                 await Promise.all(updates);
                 setDeployments(prev => prev.map(d => selectedCards.has(d.id) || [...selectedCards.keys()].some(k => {
                   const fa = flexAds.find(f => `flex-${f.id}` === k);
@@ -2269,6 +2277,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 }) ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
                 addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
                 setSelectedCards(new Map());
+                await loadDeployments();
               } catch {
                 addToast('Failed to mark as posted', 'error');
               } finally {
@@ -2281,13 +2290,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
           </button>
           <button
-            onClick={() => setBulkEditing(true)}
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); setBulkEditing(true); }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
           >
             Edit Selected ({selectedCards.size})
           </button>
           <button
-            onClick={() => setBulkDeleteConfirm(true)}
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); setBulkDeleteConfirm(true); }}
             disabled={bulkDeleting}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-rust border border-ed-rust/30 hover:bg-ed-rust/10 transition-colors disabled:opacity-50"
           >
@@ -2350,6 +2363,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 deletes.push(api.deleteDeployment(cardKey));
               }
             }
+            if (deletes.length === 0) {
+              addToast('Selected ads are no longer available. Refreshing...', 'error');
+              await loadDeployments();
+              return;
+            }
             await Promise.all(deletes);
             // Optimistic UI removal
             const flexIdsToRemove = new Set();
@@ -2362,6 +2380,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             setDeployments(prev => prev.filter(d => !depIdsToRemove.has(d.id)));
             addToast(`Deleted ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''}`, 'success');
             setSelectedCards(new Map());
+            await loadDeployments();
           } catch {
             addToast('Failed to delete some ads', 'error');
           } finally {
