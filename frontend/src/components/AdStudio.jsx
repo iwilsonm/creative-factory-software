@@ -1060,6 +1060,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       }
     };
 
+    const oneTimeProductFile = productFile;
     let stream;
 
     if (isCustomPromptMode) {
@@ -1159,6 +1160,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       if (exceedsCombinedSizeLimit()) return;
       stream = api.generateAd(projectId, options, handleEvent);
+    }
+
+    if (oneTimeProductFile && !saveProductAsDefault) {
+      clearProductImage();
     }
 
     stream.done
@@ -2274,7 +2279,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         <div className="mb-5">
           <label className="text-[11px] uppercase tracking-[0.14em] text-ed-ink3 mb-2 flex items-center gap-1 font-geist">
             Product Image
-            <InfoTooltip text="The product reference used for this ad. Keep it on when the product must appear; turn it off only for templates that intentionally do not show the product." position="right" />
+            <InfoTooltip text="The product reference used for this ad. The project default is used unless you choose a different image for this generation." position="right" />
           </label>
 
           {/* Product image toggle + indicator — always shown when project has a product image */}
@@ -2303,21 +2308,21 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               )}
               <div className="flex-1 min-w-0">
                 <p className={`text-[11px] font-medium ${skipProductImage ? 'text-ed-accent' : 'text-ed-green'}`}>
-                  {skipProductImage ? 'Product image off for this ad' : 'Product image included'}
+                  {skipProductImage ? 'Product image off for this ad' : 'Using project product image'}
                 </p>
                 <p className={`text-[10px] ${skipProductImage ? 'text-ed-accent' : 'text-ed-green'}`}>
                   {skipProductImage
                     ? 'Toggle on to include product image'
-                    : 'Toggle off to exclude for this ad'
+                    : 'This only affects the next ad you generate. Your project default stays unchanged.'
                   }
                 </p>
               </div>
               {!skipProductImage && (
                 <button
                   onClick={() => productFileInputRef.current?.click()}
-                  className="text-[10px] text-ed-ink3 hover:text-ed-ink2 transition-colors whitespace-nowrap"
+                  className="text-[10px] text-ed-ink3 hover:text-ed-ink2 transition-colors text-right leading-tight max-w-[92px] sm:max-w-none"
                 >
-                  Override →
+                  Use different image for this ad
                 </button>
               )}
             </div>
@@ -2333,11 +2338,13 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   className="w-12 h-12 object-cover rounded-lg border border-ed-line"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-medium text-ed-ink truncate">{productFile.name}</p>
+                  <p className="text-[12px] font-medium text-ed-ink truncate">One-time product image override</p>
                   <p className="text-[10px] text-ed-ink3">
-                    {(productFile.size / 1024).toFixed(0)} KB
-                    {project?.productImageUrl ? ' — overrides project image' : ''}
+                    {productFile.name} · {(productFile.size / 1024).toFixed(0)} KB
                   </p>
+                  {project?.productImageUrl && (
+                    <p className="text-[10px] text-ed-ink3 mt-0.5">This only affects the next ad you generate. Your project default stays unchanged.</p>
+                  )}
                 </div>
                 <button
                   onClick={clearProductImage}

@@ -948,7 +948,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
             <div className="mb-3">
               <label className="text-[11px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-1">
                 Product Image
-                <InfoTooltip text="The product reference the image model should preserve. Project default is used unless you override it for this batch." position="right" />
+                <InfoTooltip text="The product reference the image model should preserve. The project default is used unless you choose a different image for this batch." position="right" />
               </label>
 
               {/* Show project-level product image indicator */}
@@ -960,14 +960,14 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     className="w-9 h-9 object-cover rounded-lg border border-ed-green/15"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-medium text-ed-green">Project product image active</p>
-                    <p className="text-[10px] text-ed-green/70">Used for all ads in batch</p>
+                    <p className="text-[11px] font-medium text-ed-green">Using project product image</p>
+                    <p className="text-[10px] text-ed-green/70">Used for all ads in this batch unless you choose a different image.</p>
                   </div>
                   <button
                     onClick={() => !creating && batchProductInputRef.current?.click()}
-                    className="text-[10px] text-ed-ink3 hover:text-ed-ink2 transition-colors whitespace-nowrap"
+                    className="text-[10px] text-ed-ink3 hover:text-ed-ink2 transition-colors text-right leading-tight max-w-[92px] sm:max-w-none"
                   >
-                    Override →
+                    Use different image for this batch
                   </button>
                 </div>
               )}
@@ -980,10 +980,12 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     className="w-12 h-12 object-cover rounded-lg border border-black/5"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-medium text-ed-ink truncate">{batchProductFile.name}</p>
+                    <p className="text-[12px] font-medium text-ed-ink truncate">
+                      {project?.productImageUrl ? 'Batch-only product image override' : batchProductFile.name}
+                    </p>
                     <p className="text-[10px] text-ed-ink3">
-                      {(batchProductFile.size / 1024).toFixed(0)} KB
-                      {project?.productImageUrl ? ' — overrides project image' : ' — used for all ads in batch'}
+                      {project?.productImageUrl ? `${batchProductFile.name} · ` : ''}{(batchProductFile.size / 1024).toFixed(0)} KB
+                      {project?.productImageUrl ? ' — overrides the project image for this batch only' : ' — used for all ads in batch'}
                     </p>
                   </div>
                   <button
