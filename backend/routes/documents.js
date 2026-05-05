@@ -129,7 +129,7 @@ router.get('/:projectId/research-prompts', async (req, res) => {
         step: 4,
         title: 'Step 4: Run Deep Research',
         mode: 'instruction',
-        instruction: 'Take the research prompt generated in Step 3, open ChatGPT in your web browser, turn on Deep Research, paste the prompt, and run it. When Deep Research finishes, copy the full research output and return here to upload or paste it.'
+        instruction: 'Take the research prompt generated in Step 3, open ChatGPT in your web browser, turn on Deep Research, paste the prompt, and run it. When Deep Research finishes, copy the full research output into a Google Doc, save it as a PDF, and return here to upload it.'
       }
     ];
 
