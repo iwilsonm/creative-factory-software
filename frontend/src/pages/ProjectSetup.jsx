@@ -16,16 +16,9 @@ export default function ProjectSetup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Sales page upload state — default to 'url' (fastest path)
-  const [salesInputMode, setSalesInputMode] = useState('url'); // 'url' | 'paste' | 'upload'
+  // Sales page upload state — PDF upload is the most reliable path.
+  const [salesInputMode, setSalesInputMode] = useState('upload'); // 'paste' | 'upload'
   const [uploadedFile, setUploadedFile] = useState(null);
-
-  // URL fetch state
-  const [urlInput, setUrlInput] = useState('');
-  const [urlFetching, setUrlFetching] = useState(false);
-  const [urlFetchStatus, setUrlFetchStatus] = useState('');
-  const [urlFetchError, setUrlFetchError] = useState(null);
-  const [fetchedMeta, setFetchedMeta] = useState(null); // { title, host, sparse, truncated, extraction_method }
 
   // Auto-describe state
   const [describing, setDescribing] = useState(false);
@@ -61,60 +54,6 @@ export default function ProjectSetup() {
       autoDescribe(form.sales_page_content);
     }
   };
-
-  // Fetch sales page from a URL
-  const handleFetchUrl = async () => {
-    const url = urlInput.trim();
-    if (!url || urlFetching) return;
-    setUrlFetching(true);
-    setUrlFetchStatus('Fetching page...');
-    setUrlFetchError(null);
-    setFetchedMeta(null);
-    setError('');
-    const renderTimer = window.setTimeout(() => {
-      setUrlFetchStatus('Rendering JavaScript page if needed...');
-    }, 1800);
-    try {
-      const {
-        sales_page_content,
-        title,
-        sparse,
-        truncated,
-        extraction_method,
-        attempted_methods,
-      } = await api.fetchSalesPageFromUrl(url);
-      setForm(prev => ({ ...prev, sales_page_content }));
-      let host = '';
-      try { host = new URL(url).hostname; } catch { host = url; }
-      setFetchedMeta({ title, host, sparse, truncated, extraction_method, attempted_methods });
-      // Explicitly trigger auto-describe (don't rely on blur event).
-      autoDescribe(sales_page_content);
-    } catch (err) {
-      setUrlFetchError({
-        message: err.message || 'Failed to fetch URL',
-        reasonCode: err.reason_code,
-        attemptedMethods: err.attempted_methods || [],
-        manualRecoverySteps: err.manual_recovery_steps || [
-          'Open the sales page in your browser.',
-          'Press Cmd+P on Mac or Ctrl+P on Windows.',
-          'Choose Save as PDF.',
-          'Upload that PDF here using the Upload option.',
-          'Or copy the page text and use Paste instead.',
-        ],
-      });
-    } finally {
-      window.clearTimeout(renderTimer);
-      setUrlFetching(false);
-      setUrlFetchStatus('');
-    }
-  };
-
-  const formatFetchMethod = (method) => ({
-    static_fetch: 'Normal page fetch',
-    browser_render: 'Browser-rendered fetch',
-    file_parse: 'File/PDF parser',
-    text_parse: 'Text parser',
-  }[method] || method);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -200,10 +139,10 @@ export default function ProjectSetup() {
               <div className="segmented-control">
                 <button
                   type="button"
-                  onClick={() => setSalesInputMode('url')}
-                  className={salesInputMode === 'url' ? 'active' : ''}
+                  onClick={() => setSalesInputMode('upload')}
+                  className={salesInputMode === 'upload' ? 'active' : ''}
                 >
-                  From URL
+                  Upload
                 </button>
                 <button
                   type="button"
@@ -212,21 +151,29 @@ export default function ProjectSetup() {
                 >
                   Paste
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSalesInputMode('upload')}
-                  className={salesInputMode === 'upload' ? 'active' : ''}
-                >
-                  Upload
-                </button>
               </div>
             </div>
 
             {salesInputMode === 'upload' && (
               <div>
+                <div className="mb-3 rounded-xl border border-ed-line bg-ed-bg p-4 text-[13px] text-ed-ink2">
+                  <p className="font-medium text-ed-ink mb-1">Turn a web page into a PDF</p>
+                  <ol className="list-decimal list-inside space-y-1 text-[12px] text-ed-ink2">
+                    <li>Open the sales page in your browser.</li>
+                    <li>Press Cmd+P on Mac or Ctrl+P on Windows.</li>
+                    <li>Choose Save as PDF, then upload that PDF below.</li>
+                  </ol>
+                  <p className="mt-3 text-[12px] text-ed-ink3">
+                    If browser print does not capture the page well, search the internet for a free web page to PDF converter, paste the public sales-page URL there, download the PDF, and upload it here.
+                  </p>
+                  <p className="mt-2 text-[12px] text-ed-rust">
+                    Use third-party PDF services only for public pages. For private or customer-sensitive pages, use your browser's Save as PDF option or paste the text manually.
+                  </p>
+                </div>
                 <DragDropUpload
                   label="Drop your PDP / Sales Page here, or click to browse"
-                  sublabel="PDF, TXT, or HTML — we'll extract the text content"
+                  sublabel="PDF is recommended. TXT, HTML, DOCX, Markdown, CSV, JSON, XML, and spreadsheets are also supported."
+                  accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.csv,.json,.xml,.rtf,.xls,.xlsx"
                   onTextExtracted={(result) => {
                     setForm(prev => ({ ...prev, sales_page_content: result.text }));
                     setUploadedFile({ name: result.filename, charCount: result.charCount });
@@ -271,107 +218,6 @@ export default function ProjectSetup() {
               </div>
             )}
 
-            {salesInputMode === 'url' && (
-              <div>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={urlInput}
-                    onChange={(e) => {
-                      setUrlInput(e.target.value);
-                      setUrlFetchError(null);
-                    }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchUrl(); } }}
-                    className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
-                    placeholder="https://example.com/product"
-                    disabled={urlFetching}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleFetchUrl}
-                    disabled={urlFetching || !urlInput.trim()}
-                    className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors whitespace-nowrap"
-                  >
-                    {urlFetching ? (urlFetchStatus.includes('Rendering') ? 'Rendering...' : 'Fetching...') : 'Fetch'}
-                  </button>
-                </div>
-                <p className="text-[11px] text-ed-ink3 mt-1">
-                  We'll fetch the page, render JavaScript pages when needed, and extract the main sales text.
-                </p>
-                {urlFetching && (
-                  <p className="text-[12px] text-ed-accent mt-2 animate-pulse">
-                    {urlFetchStatus || 'Fetching page...'}
-                  </p>
-                )}
-                {urlFetchError && (
-                  <div className="mt-3 rounded-xl border border-ed-rust/30 bg-ed-rust/10 p-4 text-[13px] text-ed-ink2">
-                    <p className="font-medium text-ed-rust mb-1">We could not read this URL automatically.</p>
-                    <p className="text-ed-ink2">{urlFetchError.message}</p>
-                    {urlFetchError.attemptedMethods?.length > 0 && (
-                      <p className="text-[12px] text-ed-ink3 mt-2">
-                        Tried: {urlFetchError.attemptedMethods.map(formatFetchMethod).join(', ')}.
-                      </p>
-                    )}
-                    <div className="mt-3">
-                      <p className="text-[12px] font-medium text-ed-ink2 mb-1">To continue, save the page as a PDF and upload it:</p>
-                      <ol className="list-decimal list-inside space-y-0.5 text-[12px] text-ed-ink3">
-                        {urlFetchError.manualRecoverySteps.map((step, index) => (
-                          <li key={`${step}-${index}`}>{step}</li>
-                        ))}
-                      </ol>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSalesInputMode('upload')}
-                        className="px-3 py-1.5 rounded-[7px] text-[12px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors"
-                      >
-                        Upload PDF
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSalesInputMode('paste')}
-                        className="px-3 py-1.5 rounded-[7px] text-[12px] border border-ed-line text-ed-ink2 hover:bg-ed-bg transition-colors"
-                      >
-                        Paste text
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {fetchedMeta && form.sales_page_content && (
-                  <div className="mt-3 bg-ed-bg border border-black/5 rounded-xl p-3">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[12px] text-ed-ink3">
-                        Fetched from <span className="text-ed-ink2">{fetchedMeta.host}</span>
-                        {fetchedMeta.title ? ` — "${fetchedMeta.title}"` : ''}
-                        {fetchedMeta.extraction_method === 'browser_render' ? ' using browser rendering' : ''}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setSalesInputMode('paste')}
-                        className="text-[12px] text-ed-accent hover:text-ed-accent transition-colors"
-                      >
-                        View / edit full content
-                      </button>
-                    </div>
-                    {fetchedMeta.sparse && (
-                      <p className="text-[11px] text-ed-rust mb-1.5">
-                        Page had little readable text. Review it before creating the project.
-                      </p>
-                    )}
-                    {fetchedMeta.truncated && (
-                      <p className="text-[11px] text-ed-accent mb-1.5">
-                        Extracted text was truncated to 50,000 characters for cost safety.
-                      </p>
-                    )}
-                    <div className="text-[12px] text-ed-ink2 whitespace-pre-wrap max-h-20 overflow-hidden">
-                      {form.sales_page_content.slice(0, 200)}
-                      {form.sales_page_content.length > 200 ? '…' : ''}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Product Description */}

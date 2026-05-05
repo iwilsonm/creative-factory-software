@@ -116,6 +116,13 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
     fs.unlinkSync(req.file.path);
 
     const redactedText = redactPotentialSecrets(text.trim());
+    if (!redactedText) {
+      const emptyMessage = ext === '.pdf'
+        ? 'This PDF did not contain readable text. It may be scanned or image-only. Try saving the live page as a text-based PDF, run OCR on the PDF, or paste the sales page text manually.'
+        : 'No readable text could be extracted from this file. Try uploading a text-based PDF, TXT/HTML/DOCX file, or paste the sales page text manually.';
+      return res.status(400).json({ error: emptyMessage });
+    }
+
     res.json({
       text: redactedText,
       filename: req.file.originalname,
