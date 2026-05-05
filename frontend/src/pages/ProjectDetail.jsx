@@ -344,7 +344,7 @@ export default function ProjectDetail() {
   const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-ed-bg', text: 'text-ed-ink2' };
 
   return (
-    <div className={`mx-auto px-4 sm:px-6 lg:px-8 py-8 ${tab === 'analytics' ? '' : 'max-w-7xl'}`}>
+    <div className={`mx-auto px-4 sm:px-6 lg:px-8 py-8 ${tab === 'analytics' || tab === 'observation' ? '' : 'max-w-7xl'}`}>
       <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 mb-6 bg-ed-bg/95 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-3 border-b border-ed-line">
         <Link to="/projects" className="w-9 h-9 rounded-lg flex items-center justify-center text-ed-ink3 hover:text-ed-ink hover:bg-ed-surface border border-transparent hover:border-ed-line transition-colors flex-shrink-0" aria-label="Back to All Projects">

@@ -541,6 +541,7 @@ export default function ObservationTab({ projectId, project }) {
 
   return (
     <div className="space-y-5">
+      <div className="max-w-7xl mx-auto space-y-5">
       {/* Editorial page header */}
       <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-1">
         <EditorialPageHeader
@@ -843,12 +844,12 @@ export default function ObservationTab({ projectId, project }) {
           ))}
         </div>
       )}
+      </div>
 
-      <div className="-mx-4 sm:-mx-6 lg:-mx-8">
-        <div className="px-[36px]">
-          <div className="ed-card overflow-visible">
-            <div className="overflow-x-auto overflow-y-visible">
-              <table className="w-full text-[13.5px] font-geist">
+      <div className="px-[36px]">
+        <div className="ed-card overflow-visible">
+          <div className="overflow-x-auto overflow-y-visible">
+            <table className="w-full text-[13.5px] font-geist">
             <thead className="border-b border-ed-line">
               <tr>
                 <th className="px-[18px] py-[12px] w-10">
@@ -973,13 +974,13 @@ export default function ObservationTab({ projectId, project }) {
                 );
               })}
             </tbody>
-              </table>
-            </div>
+            </table>
           </div>
         </div>
       </div>
 
       {archived.length > 0 && (
+        <div className="max-w-7xl mx-auto">
         <div className="ed-card p-5">
           <h3 className="text-[18px] font-serif text-ed-ink2 mb-3">Archived angles ({archived.length})</h3>
           <div className="space-y-2">
@@ -997,6 +998,7 @@ export default function ObservationTab({ projectId, project }) {
               />
             ))}
           </div>
+        </div>
         </div>
       )}
 
