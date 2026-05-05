@@ -165,14 +165,33 @@ router.put('/password', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+function normalizeUsername(value) {
+  return String(value || '').trim();
+}
+
+function validateUsername(username) {
+  if (!username) return 'Username is required';
+  if (username.length < 3) return 'Username must be at least 3 characters';
+  if (username.length > 50) return 'Username must be 50 characters or fewer';
+  if (!/^[A-Za-z0-9._-]+$/.test(username)) {
+    return 'Username can only use letters, numbers, periods, underscores, and hyphens';
+  }
+  return null;
+}
+
 // Update own profile fields used by the UI greeting/nav.
 router.put('/profile', requireAuth, async (req, res) => {
   const displayName = String(req.body?.displayName || '').trim();
+  const username = normalizeUsername(req.body?.username);
   if (!displayName) {
     return res.status(400).json({ error: 'Display name is required' });
   }
   if (displayName.length > 80) {
     return res.status(400).json({ error: 'Display name must be 80 characters or fewer' });
+  }
+  const usernameError = validateUsername(username);
+  if (usernameError) {
+    return res.status(400).json({ error: usernameError });
   }
 
   const user = await getUserByExternalId(req.user.id);
@@ -180,13 +199,21 @@ router.put('/profile', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  await updateUser(user.externalId, { display_name: displayName });
+  if (username !== user.username) {
+    const existing = await getUserByUsername(username);
+    if (existing && existing.externalId !== user.externalId) {
+      return res.status(409).json({ error: 'Username already exists' });
+    }
+  }
+
+  await updateUser(user.externalId, { username, display_name: displayName });
+  req.session.username = username;
   req.session.displayName = displayName;
 
   res.json({
     success: true,
     user: {
-      username: user.username,
+      username,
       role: user.role,
       displayName,
     },

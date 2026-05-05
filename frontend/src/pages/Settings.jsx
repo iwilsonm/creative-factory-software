@@ -483,7 +483,10 @@ export default function Settings() {
   // Password change
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordMsg, setPasswordMsg] = useState('');
-  const [profileForm, setProfileForm] = useState({ displayName: user?.displayName || user?.username || '' });
+  const [profileForm, setProfileForm] = useState({
+    username: user?.username || '',
+    displayName: user?.displayName || user?.username || '',
+  });
   const [profileMsg, setProfileMsg] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
 
@@ -492,7 +495,10 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    setProfileForm({ displayName: user?.displayName || user?.username || '' });
+    setProfileForm({
+      username: user?.username || '',
+      displayName: user?.displayName || user?.username || '',
+    });
   }, [user?.displayName, user?.username]);
 
   const loadSettings = async () => {
@@ -598,18 +604,31 @@ export default function Settings() {
     e.preventDefault();
     setProfileMsg('');
     const displayName = profileForm.displayName.trim();
+    const username = profileForm.username.trim();
+    if (!username) {
+      setProfileMsg('Error: Username is required');
+      return;
+    }
+    if (username.length < 3) {
+      setProfileMsg('Error: Username must be at least 3 characters');
+      return;
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(username)) {
+      setProfileMsg('Error: Username can only use letters, numbers, periods, underscores, and hyphens');
+      return;
+    }
     if (!displayName) {
       setProfileMsg('Error: Display name is required');
       return;
     }
     setSavingProfile(true);
     try {
-      const result = await api.updateProfile(displayName);
+      const result = await api.updateProfile({ displayName, username });
       if (result?.user) setUser(result.user);
-      setProfileMsg('Greeting name updated');
-      toast.success('Greeting name updated');
+      setProfileMsg('Profile updated');
+      toast.success('Profile updated');
     } catch (err) {
-      const message = err.message || 'Failed to update greeting name';
+      const message = err.message || 'Failed to update profile';
       setProfileMsg(`Error: ${message}`);
       toast.error(message);
     } finally {
@@ -711,21 +730,38 @@ export default function Settings() {
               {profileMsg}
             </div>
           )}
-          <form onSubmit={handleProfileSave} className="flex flex-col sm:flex-row gap-2">
-            <input
-              value={profileForm.displayName}
-              onChange={e => setProfileForm({ displayName: e.target.value })}
-              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
-              placeholder="Your greeting name"
-              maxLength={80}
-            />
-            <button
-              type="submit"
-              disabled={savingProfile}
-              className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
-            >
-              {savingProfile ? 'Saving...' : 'Save Name'}
-            </button>
+          <form onSubmit={handleProfileSave} className="space-y-4">
+            <div>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Username</label>
+              <input
+                value={profileForm.username}
+                onChange={e => setProfileForm(prev => ({ ...prev, username: e.target.value }))}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
+                placeholder="Username"
+                autoComplete="username"
+                maxLength={50}
+              />
+              <p className="text-[11px] text-ed-ink3 mt-1">Use this username when signing in.</p>
+            </div>
+            <div>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Greeting Name</label>
+              <input
+                value={profileForm.displayName}
+                onChange={e => setProfileForm(prev => ({ ...prev, displayName: e.target.value }))}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
+                placeholder="Your greeting name"
+                maxLength={80}
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+              >
+                {savingProfile ? 'Saving...' : 'Save Profile'}
+              </button>
+            </div>
           </form>
         </div>
 

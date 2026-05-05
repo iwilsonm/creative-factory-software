@@ -64,6 +64,7 @@ export const create = mutation({
 export const update = mutation({
   args: {
     externalId: v.string(),
+    username: v.optional(v.string()),
     display_name: v.optional(v.string()),
     role: v.optional(v.string()),
     is_active: v.optional(v.boolean()),
@@ -77,6 +78,16 @@ export const update = mutation({
     if (!user) throw new Error("User not found");
 
     const updates: Record<string, any> = { updated_at: args.updated_at };
+    if (args.username !== undefined) {
+      const existing = await ctx.db
+        .query("users")
+        .withIndex("by_username", (q) => q.eq("username", args.username))
+        .first();
+      if (existing && existing.externalId !== args.externalId) {
+        throw new Error("Username already exists");
+      }
+      updates.username = args.username;
+    }
     if (args.display_name !== undefined) updates.display_name = args.display_name;
     if (args.role !== undefined) updates.role = args.role;
     if (args.is_active !== undefined) updates.is_active = args.is_active;
