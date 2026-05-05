@@ -9,6 +9,7 @@ import PostedView from '../components/PostedView';
 import PipelineSubNav from '../components/pipeline/PipelineSubNav';
 import EditorialPageHeader from '../components/editorial/EditorialPageHeader';
 import { computePlannerCardCount, computeReadyCardCount } from '../utils/pipelineCounts';
+import { fetchBlobOrThrow } from '../utils/downloads';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted'];
 const STATUS_META = {
@@ -460,8 +461,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
   const handleDownload = async (dep) => {
     if (!dep.imageUrl) return;
     try {
-      const response = await fetch(dep.imageUrl);
-      const blob = await response.blob();
+      const blob = await fetchBlobOrThrow(dep.imageUrl, 'Image download failed');
       const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
       const name = displayName(dep).replace(/[^a-z0-9]/gi, '-').slice(0, 40);
       const url = URL.createObjectURL(blob);
@@ -487,8 +487,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
     try {
       const results = await Promise.allSettled(
         selected.map(async (dep) => {
-          const res = await fetch(dep.imageUrl);
-          const blob = await res.blob();
+          const blob = await fetchBlobOrThrow(dep.imageUrl, 'Image download failed');
           const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
           return { dep, blob, ext };
         })

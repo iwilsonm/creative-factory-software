@@ -11,6 +11,7 @@ import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { usePolling } from '../hooks/usePolling';
 import { ensureArray } from '../utils/collections';
+import { fetchBlobOrThrow } from '../utils/downloads';
 import { resizeImageForUpload, estimateBase64BodyBytes, MAX_COMBINED_BODY_BYTES } from '../utils/imageResize';
 
 // Helper: resize a file then base64-encode it. Logs the size delta to console for diagnostics.
@@ -1274,8 +1275,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const handleDownload = async (ad, e) => {
     if (e) e.stopPropagation();
     try {
-      const response = await fetch(ad.imageUrl);
-      const blob = await response.blob();
+      const blob = await fetchBlobOrThrow(ad.imageUrl, 'Image download failed');
       const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
       const filename = `ad_${ad.angle ? ad.angle.replace(/[^a-z0-9]/gi, '-').slice(0, 30) : ad.id.slice(0, 8)}_${ad.aspect_ratio.replace(':', 'x')}${ext}`;
       const url = URL.createObjectURL(blob);
@@ -1407,8 +1407,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       const results = await Promise.allSettled(
         selectedAds.map(async (ad) => {
-          const response = await fetch(ad.imageUrl);
-          const blob = await response.blob();
+          const blob = await fetchBlobOrThrow(ad.imageUrl, 'Image download failed');
           const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
           const filename = `ad_${ad.angle ? ad.angle.replace(/[^a-z0-9]/gi, '-').slice(0, 30) : ad.id.slice(0, 8)}_${ad.aspect_ratio.replace(':', 'x')}${ext}`;
           return { filename, blob };

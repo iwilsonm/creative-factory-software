@@ -5,6 +5,7 @@ import { api } from '../api';
 import { ensureArray } from '../utils/collections';
 import ConfirmDialog from './ConfirmDialog';
 import InfoTooltip from './InfoTooltip';
+import { fetchBlobOrThrow } from '../utils/downloads';
 // Phase 6.20a — backdate picker on manual Mark as Posted
 import MarkPostedModal from './MarkPostedModal';
 
@@ -1242,8 +1243,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     if (!dep.imageUrl) return;
     setDownloadingSingle(prev => new Set(prev).add(dep.id));
     try {
-      const response = await fetch(dep.imageUrl);
-      const blob = await response.blob();
+      const blob = await fetchBlobOrThrow(dep.imageUrl, 'Image download failed');
       const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
       const name = (dep.ad_name || dep.ad?.headline || dep.id || 'ad').replace(/[^a-z0-9]/gi, '-').slice(0, 40);
       const url = URL.createObjectURL(blob);
@@ -1263,7 +1263,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     stateSet(prev => new Set(prev).add(stateKey));
     try {
       const results = await Promise.allSettled(withImages.map(async (dep) => {
-        const res = await fetch(dep.imageUrl); const blob = await res.blob();
+        const blob = await fetchBlobOrThrow(dep.imageUrl, 'Image download failed');
         const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
         return { dep, blob, ext };
       }));

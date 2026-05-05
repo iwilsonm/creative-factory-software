@@ -51,6 +51,10 @@ function handleDocumentUpload(req, res, next) {
         error: 'That file is too large for a reliable upload. Use a file under 4 MB, split or compress the PDF, or paste the text manually.',
         code: 'FILE_TOO_LARGE',
         details: `Max upload size is ${MAX_DOCUMENT_UPLOAD_BYTES} bytes.`,
+        manual_recovery_steps: [
+          'Compress or split the PDF so it is under 4 MB.',
+          'Or open the PDF, select the sales-page text, and paste it manually.',
+        ],
       });
     }
     if (err.code === 'UNSUPPORTED_FILE_TYPE') {
@@ -86,6 +90,11 @@ router.post('/extract-text', handleDocumentUpload, async (req, res) => {
           error: 'This PDF could not be read. Re-save or re-export the PDF, run OCR if it is scanned, or paste the sales page text manually.',
           code: 'MALFORMED_PDF',
           details: err.message,
+          manual_recovery_steps: [
+            'Open the PDF and choose Save As or Export to create a fresh PDF.',
+            'If it is scanned or image-only, run OCR first.',
+            'Or paste the sales page text manually.',
+          ],
         });
       }
       text = data.text;
@@ -160,6 +169,17 @@ router.post('/extract-text', handleDocumentUpload, async (req, res) => {
       return res.status(400).json({
         error: emptyMessage,
         code: ext === '.pdf' ? 'EMPTY_OR_SCANNED_PDF' : 'NO_READABLE_TEXT',
+        manual_recovery_steps: ext === '.pdf'
+          ? [
+              'Open the original sales page in your browser.',
+              'Press Cmd+P on Mac or Ctrl+P on Windows.',
+              'Choose Save as PDF, then upload the new text-based PDF.',
+              'If the PDF is scanned, run OCR or paste the page text manually.',
+            ]
+          : [
+              'Try exporting the document again as PDF, TXT, HTML, or DOCX.',
+              'Or paste the readable text manually.',
+            ],
       });
     }
 

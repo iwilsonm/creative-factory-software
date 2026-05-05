@@ -44,6 +44,7 @@ export default function DragDropUpload({
   const [uploadResult, setUploadResult] = useState(null);
   const [error, setError] = useState('');
   const [errorDetails, setErrorDetails] = useState('');
+  const [recoverySteps, setRecoverySteps] = useState([]);
   const fileInputRef = useRef(null);
 
   const status = externalStatus || (uploading ? 'uploading' : uploadResult ? 'success' : 'default');
@@ -69,6 +70,7 @@ export default function DragDropUpload({
     if (validationError) {
       setError(validationError);
       setErrorDetails('');
+      setRecoverySteps([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -76,6 +78,7 @@ export default function DragDropUpload({
     setUploading(true);
     setError('');
     setErrorDetails('');
+    setRecoverySteps([]);
     setUploadResult(null);
 
     try {
@@ -85,6 +88,7 @@ export default function DragDropUpload({
     } catch (err) {
       setError(err.message || 'Failed to extract text from file');
       setErrorDetails(err.technical_details || (err.details ? String(err.details) : ''));
+      setRecoverySteps(Array.isArray(err.manual_recovery_steps) ? err.manual_recovery_steps : []);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -214,6 +218,13 @@ export default function DragDropUpload({
       {error && (
         <div className="mt-2 space-y-1">
           <p className="text-xs text-red-600">{error}</p>
+          {recoverySteps.length > 0 && (
+            <ol className="list-decimal list-inside space-y-0.5 text-[11px] text-ed-ink2">
+              {recoverySteps.map((step, idx) => (
+                <li key={`${idx}-${step}`}>{step}</li>
+              ))}
+            </ol>
+          )}
           {errorDetails && (
             <details className="text-[11px] text-ed-ink3">
               <summary className="cursor-pointer">Details</summary>
