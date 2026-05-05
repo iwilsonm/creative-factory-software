@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import { api } from '../api';
+import { canExtractDocumentInBrowser, extractDocumentTextInBrowser } from '../utils/clientDocumentExtractor';
 
 const DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const DEFAULT_MAX_BROWSER_BYTES = 25 * 1024 * 1024;
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes)) return '0 bytes';
@@ -22,6 +24,8 @@ function formatBytes(bytes) {
  * @param {string} [props.sublabel] - Sublabel text
  * @param {string} [props.accept] - File accept types
  * @param {number} [props.maxFileBytes] - Client-side upload size limit
+ * @param {number} [props.maxBrowserFileBytes] - Local extraction size limit
+ * @param {boolean} [props.preferBrowserExtraction] - Extract supported files locally before uploading
  * @param {'default'|'uploading'|'success'} [props.status] - External status override
  * @param {string} [props.successMessage] - Message shown in success state
  * @param {string} [props.className] - Additional CSS classes for the container
@@ -37,7 +41,9 @@ export default function DragDropUpload({
   successMessage,
   className = '',
   compact = false,
-  maxFileBytes = DEFAULT_MAX_UPLOAD_BYTES
+  maxFileBytes = DEFAULT_MAX_UPLOAD_BYTES,
+  maxBrowserFileBytes = DEFAULT_MAX_BROWSER_BYTES,
+  preferBrowserExtraction = true
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -57,12 +63,16 @@ export default function DragDropUpload({
       return `File type ${ext || '(none)'} is not supported. Upload one of: ${accept}.`;
     }
 
-    if (file.size > maxFileBytes) {
-      return `This file is ${formatBytes(file.size)}, which is too large for a reliable upload. Use a file under ${formatBytes(maxFileBytes)}, split/compress the PDF, or paste the text manually.`;
+    const canUseBrowser = preferBrowserExtraction && canExtractDocumentInBrowser(file);
+    const effectiveLimit = canUseBrowser ? maxBrowserFileBytes : maxFileBytes;
+    if (file.size > effectiveLimit) {
+      return canUseBrowser
+        ? `This file is ${formatBytes(file.size)}, which is too large to read safely in your browser. Use a file under ${formatBytes(effectiveLimit)}, split/compress the PDF, or paste the text manually.`
+        : `This file is ${formatBytes(file.size)}, which is too large for a reliable upload. Use a file under ${formatBytes(effectiveLimit)}, split/compress the PDF, or paste the text manually.`;
     }
 
     return '';
-  }, [accept, maxFileBytes]);
+  }, [accept, maxBrowserFileBytes, maxFileBytes, preferBrowserExtraction]);
 
   const processFile = useCallback(async (file) => {
     if (!file) return;
@@ -82,7 +92,9 @@ export default function DragDropUpload({
     setUploadResult(null);
 
     try {
-      const result = await api.extractText(file);
+      const result = preferBrowserExtraction && canExtractDocumentInBrowser(file)
+        ? await extractDocumentTextInBrowser(file)
+        : await api.extractText(file);
       setUploadResult({ name: result.filename, charCount: result.charCount });
       onTextExtracted(result);
     } catch (err) {
@@ -93,7 +105,7 @@ export default function DragDropUpload({
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [onTextExtracted, validateFile]);
+  }, [onTextExtracted, preferBrowserExtraction, validateFile]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -160,7 +172,7 @@ export default function DragDropUpload({
                 Extracting text...
               </p>
               <p className={`text-ed-accent/70 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
-                This may take a moment for large PDFs
+                Supported PDFs and documents are read in your browser first.
               </p>
             </div>
           ) : status === 'success' ? (
@@ -198,7 +210,7 @@ export default function DragDropUpload({
                 {sublabel}
               </p>
               <p className={`text-gray-400 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
-                Max reliable upload: {formatBytes(maxFileBytes)}
+                Browser-read files up to {formatBytes(maxBrowserFileBytes)}. Backend fallback max: {formatBytes(maxFileBytes)}.
               </p>
             </div>
           )}
