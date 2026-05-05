@@ -14,6 +14,12 @@ function normalizeTemplateTags(value) {
   return [...new Set(raw.map(t => String(t || '').trim()).filter(Boolean))];
 }
 
+function templateHasTag(template, tag) {
+  if (!tag) return true;
+  const normalized = String(tag).trim().toLowerCase();
+  return normalizeTemplateTags(template?.tags).some(t => t.toLowerCase() === normalized);
+}
+
 /**
  * Templates tab — direct multi-file upload (no Google Drive sync).
  * Up to 500 files at a time (HARD_CAP_FILES is the absolute ceiling), 5 in parallel.
@@ -37,11 +43,24 @@ export default function TemplateImages({ projectId }) {
   const [savingDescId, setSavingDescId] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [pendingDeleteImage, setPendingDeleteImage] = useState(null);
+  const [selectedTemplateTag, setSelectedTemplateTag] = useState('');
   const fileInputRef = useRef(null);
 
   const uploading = !!batch && batch.completed < batch.total;
   const activeTemplates = useMemo(() => (templates || []).filter(t => !t.archived_at), [templates]);
   const archivedTemplates = useMemo(() => (templates || []).filter(t => t.archived_at), [templates]);
+  const templateTags = useMemo(() => {
+    return [...new Set((templates || []).flatMap(t => normalizeTemplateTags(t.tags)))]
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [templates]);
+  const filteredActiveTemplates = useMemo(
+    () => activeTemplates.filter(t => templateHasTag(t, selectedTemplateTag)),
+    [activeTemplates, selectedTemplateTag]
+  );
+  const filteredArchivedTemplates = useMemo(
+    () => archivedTemplates.filter(t => templateHasTag(t, selectedTemplateTag)),
+    [archivedTemplates, selectedTemplateTag]
+  );
 
   const handleBatchUpload = useCallback(async (rawFiles) => {
     setError('');
@@ -315,6 +334,34 @@ export default function TemplateImages({ projectId }) {
           className="hidden"
         />
 
+        {templateTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <label htmlFor="template-tag-filter" className="text-[10px] uppercase tracking-[0.08em] text-ed-ink3 font-medium">
+              Filter by tag
+            </label>
+            <select
+              id="template-tag-filter"
+              value={selectedTemplateTag}
+              onChange={(e) => setSelectedTemplateTag(e.target.value)}
+              className="text-[12px] text-ed-ink bg-ed-surface border border-ed-line rounded-lg px-2 py-1.5"
+            >
+              <option value="">All tags</option>
+              {templateTags.map(tag => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
+            {selectedTemplateTag && (
+              <button
+                type="button"
+                onClick={() => setSelectedTemplateTag('')}
+                className="ed-ghost text-[11px] px-2.5 py-1"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Templates grid */}
         {activeTemplates.length === 0 ? (
           <div className="text-center py-2">
@@ -322,9 +369,15 @@ export default function TemplateImages({ projectId }) {
               Upload reference ads you want the AI to use as style guides.
             </p>
           </div>
+        ) : filteredActiveTemplates.length === 0 ? (
+          <div className="text-center py-2">
+            <p className="text-[11px] text-ed-ink3">
+              No active templates match “{selectedTemplateTag}”.
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {activeTemplates.map(tmpl => (
+            {filteredActiveTemplates.map(tmpl => (
               <div
                 key={tmpl.id}
                 className="group ed-card overflow-hidden transition-all duration-300"
@@ -443,13 +496,18 @@ export default function TemplateImages({ projectId }) {
       {archivedTemplates.length > 0 && (
         <details className="ed-card p-6">
           <summary className="cursor-pointer text-[14px] font-serif font-[420] text-ed-ink">
-            Archived Templates ({archivedTemplates.length})
+            Archived Templates ({selectedTemplateTag ? filteredArchivedTemplates.length : archivedTemplates.length})
           </summary>
           <p className="text-[11px] text-ed-ink3 mt-1 mb-4">
             Archived templates are hidden from new generation until restored.
           </p>
+          {filteredArchivedTemplates.length === 0 ? (
+            <p className="text-[11px] text-ed-ink3">
+              No archived templates match “{selectedTemplateTag}”.
+            </p>
+          ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {archivedTemplates.map(tmpl => (
+            {filteredArchivedTemplates.map(tmpl => (
               <div key={tmpl.id} className="ed-card overflow-hidden opacity-80">
                 <div className="aspect-square bg-ed-bg cursor-pointer" onClick={() => setViewImage(tmpl)}>
                   <img src={tmpl.thumbnailUrl} alt={tmpl.filename} className="w-full h-full object-cover" loading="lazy" />
@@ -471,6 +529,7 @@ export default function TemplateImages({ projectId }) {
               </div>
             ))}
           </div>
+          )}
         </details>
       )}
 

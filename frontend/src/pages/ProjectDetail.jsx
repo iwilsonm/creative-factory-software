@@ -105,6 +105,12 @@ export default function ProjectDetail() {
   }, [subTabFromUrl, setSearchParams]);
   useEffect(() => {
     if (tab !== 'overview') return;
+    if (!normalizedSubTabFromUrl || !validSubTabs.includes(normalizedSubTabFromUrl)) return;
+    if (settingsSubTab === normalizedSubTabFromUrl) return;
+    setSettingsSubTabState(normalizedSubTabFromUrl);
+  }, [tab, normalizedSubTabFromUrl, settingsSubTab]);
+  useEffect(() => {
+    if (tab !== 'overview') return;
     const raw = searchParams.get('subtab');
     if (raw === 'automation' || raw === 'filter' || raw === 'creative_director') {
       setSearchParams(prev => {
