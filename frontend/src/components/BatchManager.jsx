@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
+import TemplateTagHelp from './TemplateTagHelp';
 import { useToast } from './Toast';
 import BatchRow from './BatchRow';
 import { usePolling } from '../hooks/usePolling';
@@ -762,6 +763,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     <p className="text-[10px] text-ed-ink3 mt-1">
                       Optional. Choose a tag to limit random templates for this batch.
                     </p>
+                    <TemplateTagHelp projectId={projectId} hasTags={templateTags.length > 0} />
                   </div>
                 </div>
               )}

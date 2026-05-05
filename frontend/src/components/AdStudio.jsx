@@ -5,6 +5,7 @@ import { api } from '../api';
 import BatchManager from './BatchManager';
 import GenerationQueue from './GenerationQueue';
 import InfoTooltip from './InfoTooltip';
+import TemplateTagHelp from './TemplateTagHelp';
 import EditorialPageHeader from './editorial/EditorialPageHeader';
 import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
@@ -1988,6 +1989,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   <p className="text-[10px] text-ed-ink3 mt-1">
                     Optional. Choose a tag to make random generation use only matching active templates.
                   </p>
+                  <TemplateTagHelp projectId={projectId} hasTags={templateTags.length > 0} />
                 </div>
               </div>
             )}

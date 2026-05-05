@@ -7,6 +7,7 @@ import { ensureArray } from '../utils/collections';
 import CreativeDirectorSettings from './CreativeDirectorSettings';
 import CreativeFilterSettings from './CreativeFilterSettings';
 import InfoTooltip from './InfoTooltip';
+import TemplateTagHelp from './TemplateTagHelp';
 import EditorialPageHeader from './editorial/EditorialPageHeader';
 
 const LEVEL_CONFIG = {
@@ -2578,6 +2579,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <option value="">Any active template</option>
               {templateTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
             </select>
+            <TemplateTagHelp projectId={selectedProject} hasTags={templateTags.length > 0} className="text-[9px]" />
           </div>
           <button
             onClick={handleTestRun}
@@ -3225,6 +3227,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 {templateTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
               </select>
               <p className="text-[9px] text-ed-ink3 mt-0.5">Blocks before paid generation if the selected tag has no active templates.</p>
+              <TemplateTagHelp projectId={selectedProject} hasTags={templateTags.length > 0} className="text-[9px]" />
             </div>
             <div>
               <FieldLabel>Headline Style</FieldLabel>
