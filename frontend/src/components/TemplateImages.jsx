@@ -244,15 +244,54 @@ export default function TemplateImages({ projectId }) {
 
       {/* ===== Templates ===== */}
       <div className="ed-card p-6">
-        <div className="mb-4">
-          <h3 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-0.5 flex items-center gap-1">
-            Templates
-            <InfoTooltip text="Reference ad images used as style guides for AI ad generation. Upload up to 500 at a time." position="right" />
-          </h3>
-          <p className="text-[12px] text-ed-ink3">
-            {activeTemplates.length} active template{activeTemplates.length !== 1 ? 's' : ''} uploaded
-            {archivedTemplates.length > 0 ? ` · ${archivedTemplates.length} archived` : ''}
-          </p>
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-0.5 flex items-center gap-1">
+              Templates
+              <InfoTooltip text="Reference ad images used as style guides for AI ad generation. Upload up to 500 at a time." position="right" />
+            </h3>
+            <p className="text-[12px] text-ed-ink3">
+              {activeTemplates.length} active template{activeTemplates.length !== 1 ? 's' : ''} uploaded
+              {archivedTemplates.length > 0 ? ` · ${archivedTemplates.length} archived` : ''}
+            </p>
+          </div>
+          <div className="flex flex-col gap-1 md:items-end">
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="template-tag-filter" className="text-[10px] uppercase tracking-[0.08em] text-ed-ink3 font-medium">
+                Filter by tag
+              </label>
+              <select
+                id="template-tag-filter"
+                value={selectedTemplateTag}
+                onChange={(e) => setSelectedTemplateTag(e.target.value)}
+                disabled={templateTags.length === 0}
+                className="text-[12px] text-ed-ink bg-ed-surface border border-ed-line rounded-lg px-2 py-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {templateTags.length === 0 ? (
+                  <option value="">No tags yet</option>
+                ) : (
+                  <>
+                    <option value="">All tags</option>
+                    {templateTags.map(tag => (
+                      <option key={tag} value={tag}>{tag}</option>
+                    ))}
+                  </>
+                )}
+              </select>
+              {selectedTemplateTag && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedTemplateTag('')}
+                  className="ed-ghost text-[11px] px-2.5 py-1"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-ed-ink3">
+              Create tags by clicking Tag on any uploaded template.
+            </p>
+          </div>
         </div>
 
         {/* Upload area */}
@@ -333,34 +372,6 @@ export default function TemplateImages({ projectId }) {
           onChange={e => { if (e.target.files?.length) handleBatchUpload(e.target.files); }}
           className="hidden"
         />
-
-        {templateTags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mb-4">
-            <label htmlFor="template-tag-filter" className="text-[10px] uppercase tracking-[0.08em] text-ed-ink3 font-medium">
-              Filter by tag
-            </label>
-            <select
-              id="template-tag-filter"
-              value={selectedTemplateTag}
-              onChange={(e) => setSelectedTemplateTag(e.target.value)}
-              className="text-[12px] text-ed-ink bg-ed-surface border border-ed-line rounded-lg px-2 py-1.5"
-            >
-              <option value="">All tags</option>
-              {templateTags.map(tag => (
-                <option key={tag} value={tag}>{tag}</option>
-              ))}
-            </select>
-            {selectedTemplateTag && (
-              <button
-                type="button"
-                onClick={() => setSelectedTemplateTag('')}
-                className="ed-ghost text-[11px] px-2.5 py-1"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Templates grid */}
         {activeTemplates.length === 0 ? (
