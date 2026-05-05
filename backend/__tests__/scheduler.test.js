@@ -10,7 +10,6 @@ const mockQueueScheduledBatchRun = vi.fn();
 const mockPollBatchJob = vi.fn();
 const mockRunBatch = vi.fn();
 const mockResumeBackgroundTestRuns = vi.fn();
-const mockPollAdStudioImageJobs = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getActiveBatchJobs: (...args) => mockGetActiveBatchJobs(...args),
@@ -25,10 +24,6 @@ vi.mock('../convexClient.js', () => ({
 vi.mock('../services/batchProcessor.js', () => ({
   pollBatchJob: (...args) => mockPollBatchJob(...args),
   runBatch: (...args) => mockRunBatch(...args),
-}));
-
-vi.mock('../services/adStudioImageJobs.js', () => ({
-  pollAdStudioImageJobs: (...args) => mockPollAdStudioImageJobs(...args),
 }));
 
 vi.mock('../services/conductorEngine.js', () => ({
@@ -60,7 +55,6 @@ describe('batch scheduler', () => {
     mockPollBatchJob.mockResolvedValue('processing');
     mockRunBatch.mockResolvedValue();
     mockResumeBackgroundTestRuns.mockResolvedValue({ checked: 0, resumed: 0, errors: 0 });
-    mockPollAdStudioImageJobs.mockResolvedValue({ checked: 0, completed: 0, failed: 0, processing: 0 });
   });
 
   it('requeues stale pre-Gemini batches before failing them', async () => {
@@ -128,7 +122,6 @@ describe('batch scheduler', () => {
 
     expect(mockPollBatchJob).toHaveBeenCalledWith('batch-001');
     expect(mockResumeBackgroundTestRuns).toHaveBeenCalledTimes(1);
-    expect(mockPollAdStudioImageJobs).toHaveBeenCalledTimes(1);
     expect(result.conductor).toEqual({ checked: 1, resumed: 1, errors: 0 });
   });
 

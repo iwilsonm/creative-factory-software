@@ -391,8 +391,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         const restoredGens = data.ads
           .filter(ad => {
             const age = now - new Date(ad.created_at).getTime();
-            if (ad.status === 'generating_image' && ad.gemini_batch_job) return age < 24 * 60 * 60 * 1000;
-            return age < STALE_MS; // Skip stale non-durable items
+            return age < STALE_MS; // Skip stale items
           })
           .map(ad => ({
             id: `restored-${ad.id}`,
@@ -401,7 +400,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             status: ad.status,
             message: ad.status === 'generating_copy'
               ? 'Creative direction in progress...'
-              : 'Image generation is running in the background...',
+              : 'Image generation in progress...',
             error: '',
             warning: '',
             progress: ad.status === 'generating_copy' ? 25 : 65,
@@ -426,7 +425,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  // Poll for durable image jobs and restored queue items.
+  // Poll for status updates on restored queue items.
   const trackedGenerationCount = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && !g.error).length;
 
   usePolling(async () => {
@@ -465,9 +464,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             ...g,
             status: currentAd.status,
             message: currentAd.status === 'generating_image'
-              ? 'Image generation is running in the background...'
+              ? 'Image generation in progress...'
               : 'Creative direction in progress...',
-            progress: currentAd.status === 'generating_image' ? 78 : 25,
+            progress: currentAd.status === 'generating_image' ? 65 : 25,
           };
         }
 

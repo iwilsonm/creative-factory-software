@@ -33,11 +33,6 @@ vi.mock('../services/gemini.js', () => ({
   generateImage: vi.fn(),
 }));
 
-vi.mock('../services/adStudioImageJobs.js', () => ({
-  isDurableGeminiImageModel: vi.fn(() => false),
-  submitAdStudioImageJob: vi.fn(),
-}));
-
 vi.mock('../services/costTracker.js', () => ({
   logGeminiCost: vi.fn(),
 }));

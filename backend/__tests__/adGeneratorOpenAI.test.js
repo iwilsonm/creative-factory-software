@@ -59,11 +59,6 @@ vi.mock('../services/gemini.js', () => ({
   generateImage: mocks.geminiGenerateImage,
 }));
 
-vi.mock('../services/adStudioImageJobs.js', () => ({
-  isDurableGeminiImageModel: vi.fn((imageModel) => !imageModel || imageModel === 'nano-banana-2' || imageModel === 'nano-banana-pro' || imageModel === 'gemini-3-pro'),
-  submitAdStudioImageJob: vi.fn(),
-}));
-
 vi.mock('../services/costTracker.js', () => ({
   logGeminiCost: vi.fn(),
 }));
