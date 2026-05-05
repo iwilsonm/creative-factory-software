@@ -844,9 +844,11 @@ export default function ObservationTab({ projectId, project }) {
         </div>
       )}
 
-      <div className="ed-card overflow-visible">
-        <div className="overflow-x-auto overflow-y-visible">
-          <table className="w-full text-[13.5px] font-geist">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8">
+        <div className="px-[36px]">
+          <div className="ed-card overflow-visible">
+            <div className="overflow-x-auto overflow-y-visible">
+              <table className="w-full text-[13.5px] font-geist">
             <thead className="border-b border-ed-line">
               <tr>
                 <th className="px-[18px] py-[12px] w-10">
@@ -971,7 +973,9 @@ export default function ObservationTab({ projectId, project }) {
                 );
               })}
             </tbody>
-          </table>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
