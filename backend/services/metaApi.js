@@ -24,6 +24,7 @@ export const META_OAUTH_SCOPES = [
   'ads_management',
   'ads_read',
   'business_management',
+  'pages_show_list',
 ];
 
 // ────────────────────────────────────────────────

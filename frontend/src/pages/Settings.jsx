@@ -952,7 +952,7 @@ export default function Settings() {
                   <li>Save the app's App ID and App Secret below.</li>
                   <li>Inside each project, open Project Settings &rarr; Meta, connect your Meta account, then choose the ad account and Facebook Page.</li>
                 </ol>
-                <p>The app requests Meta permissions for ads management, ads read access, and business management so it can read analytics, prepare posts, and support Direct API posting when you choose that path.</p>
+                <p>The app requests Meta permissions for ads management, ads read access, business management, and Page listing so it can read analytics, prepare posts, select a Facebook Page, and support Direct API posting when you choose that path.</p>
               </div>
             </details>
 

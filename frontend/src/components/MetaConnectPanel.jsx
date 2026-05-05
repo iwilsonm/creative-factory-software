@@ -322,7 +322,7 @@ export default function MetaConnectPanel({ projectId }) {
               <li>In global Settings, save the Meta App ID and App Secret from the Meta developer app.</li>
               <li>In Meta's OAuth settings, add this exact redirect URI: <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>.</li>
               <li>Make sure the Meta user connecting here has access to the ad account and at least one Facebook Page.</li>
-              <li>Click Connect, approve the requested ads permissions, then select this project's ad account and Page.</li>
+              <li>Click Connect, approve the requested ads and Page-list permissions, then select this project's ad account and Page.</li>
             </ol>
             <p className="text-[11px] text-ed-ink3 mt-3 leading-relaxed">
               Common setup errors usually mean the App ID/Secret are missing, the redirect URI does not match exactly, the Meta user cannot access an ad account/Page, or the token expired and needs reconnecting.
@@ -416,7 +416,7 @@ export default function MetaConnectPanel({ projectId }) {
                 {pagesLoading && <div className="text-xs text-ed-ink3">Loading Pages…</div>}
                 {!pagesLoading && pages.length === 0 && (
                   <div className="text-xs text-ed-ink3 bg-cream rounded p-2">
-                    No Pages available for this Meta user. Posting requires admin/editor access on at least one Facebook Page. Add yourself as an admin in Meta Business Manager and refresh.
+                    No Pages are visible to Creative Factory for this Meta connection. Posting requires Page-list permission plus admin/editor access to at least one Facebook Page. Reconnect Meta after approving the Page-list permission, then select the Page here.
                   </div>
                 )}
                 {!pagesLoading && pages.length > 0 && (
