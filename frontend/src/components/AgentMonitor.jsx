@@ -2524,6 +2524,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-ed-ink3 mb-1">Test Angle</label>
             <select
+              data-testid="director-test-angle-select"
               value={selectedAngleId}
               onChange={e => setSelectedAngleId(e.target.value)}
               onFocus={() => {
@@ -2549,6 +2550,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-ed-ink3 mb-1">Ads in Test Ad Set</label>
             <input
+              data-testid="director-test-target-input"
               type="number"
               min="1"
               max="20"
@@ -2582,6 +2584,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             <TemplateTagHelp projectId={selectedProject} hasTags={templateTags.length > 0} className="text-[9px]" />
           </div>
           <button
+            data-testid="director-test-run-button"
             onClick={handleTestRun}
             disabled={!canTriggerTestRun}
             className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"

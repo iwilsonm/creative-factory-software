@@ -18,13 +18,13 @@ function getTimeEstimate(startTime, progress) {
 }
 
 const GenerationQueue = forwardRef(function GenerationQueue(
-  { activeGens, genQueueExpanded, setGenQueueExpanded, activeGenCount, dismissGen },
+  { activeGens, genQueueExpanded, setGenQueueExpanded, activeGenCount, dismissGen, ...props },
   ref
 ) {
   if (activeGens.length === 0) return null;
 
   return (
-    <div ref={ref} className="ed-card p-4 mb-6 fade-in">
+    <div ref={ref} className="ed-card p-4 mb-6 fade-in" {...props}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-lg bg-ed-green/10 flex items-center justify-center flex-shrink-0">

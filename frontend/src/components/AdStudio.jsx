@@ -129,6 +129,14 @@ function hasAdImage(ad) {
   return !!ad && !!(ad.imageUrl || ad.thumbnailUrl || ad.storageId);
 }
 
+function hasRenderableAdImage(ad) {
+  return !!ad && !!(ad.imageUrl || ad.thumbnailUrl);
+}
+
+function isCompletedImageReady(ad) {
+  return !!ad && ad.status === 'completed' && hasRenderableAdImage(ad);
+}
+
 function isDisplayableImageAd(ad) {
   return !!ad && DISPLAYABLE_IMAGE_STATUSES.has(ad.status) && hasAdImage(ad);
 }
@@ -288,6 +296,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const [activeGens, setActiveGens] = useState([]);
   const [genQueueExpanded, setGenQueueExpanded] = useState(true);
   const genIdCounter = useRef(0);
+  const singleGenerationQueueRef = useRef(Promise.resolve());
   const queueRef = useRef(null);
 
   // Derived count of in-progress generations
@@ -376,54 +385,59 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     };
   }, [viewAd]);
 
-  // Restore in-progress ads to the queue on mount
-  useEffect(() => {
-    let cancelled = false;
+  const STUCK_THRESHOLD_MS = 8 * 60 * 1000;
 
-    const restoreQueue = async () => {
-      try {
-        const data = await api.getInProgressAds(projectId);
-        if (cancelled || !data.ads || data.ads.length === 0) return;
+  const syncInProgressAds = useCallback(async ({ cancelledRef } = {}) => {
+    try {
+      const data = await api.getInProgressAds(projectId);
+      if (cancelledRef?.current || !data.ads || data.ads.length === 0) return;
 
-        const STALE_MS = 10 * 60 * 1000; // 10 minutes — treat older items as stale/failed
-        const now = Date.now();
+      const now = Date.now();
 
-        const restoredGens = data.ads
-          .filter(ad => {
-            const age = now - new Date(ad.created_at).getTime();
-            return age < STALE_MS; // Skip stale items
-          })
-          .map(ad => ({
+      const restoredGens = data.ads
+        .map(ad => {
+          const progressAt = new Date(ad.last_progress_at || ad.created_at).getTime();
+          const appearsStuck = Number.isFinite(progressAt) && (now - progressAt) > STUCK_THRESHOLD_MS;
+          return {
             id: `restored-${ad.id}`,
             adExternalId: ad.id,
             label: ad.angle || ad.aspect_ratio || '',
             status: ad.status,
             message: ad.status === 'generating_copy'
               ? 'Creative direction in progress...'
-              : 'Image generation in progress...',
+              : appearsStuck
+                ? 'Generation appears stuck; checking server recovery...'
+                : 'Image generation in progress...',
             error: '',
             warning: '',
             progress: ad.status === 'generating_copy' ? 25 : 65,
             startTime: new Date(ad.created_at).getTime(),
             source: 'restored',
-          }));
-
-        if (restoredGens.length === 0) return;
-
-        setActiveGens(prev => {
-          const existingAdIds = new Set(prev.filter(g => g.adExternalId).map(g => g.adExternalId));
-          const newGens = restoredGens.filter(g => !existingAdIds.has(g.adExternalId));
-          if (newGens.length === 0) return prev;
-          return [...prev, ...newGens];
+          };
         });
-      } catch (err) {
-        console.error('Failed to restore generation queue:', err);
-      }
-    };
 
-    restoreQueue();
-    return () => { cancelled = true; };
-  }, [projectId]);
+      if (restoredGens.length === 0) return;
+
+      setActiveGens(prev => {
+        const existingAdIds = new Set(prev.filter(g => g.adExternalId).map(g => g.adExternalId));
+        const newGens = restoredGens.filter(g => !existingAdIds.has(g.adExternalId));
+        if (newGens.length === 0) return prev;
+        return [...prev, ...newGens];
+      });
+    } catch (err) {
+      console.error('Failed to restore generation queue:', err);
+    }
+  }, [STUCK_THRESHOLD_MS, projectId]);
+
+  // Restore in-progress ads immediately, then keep discovering server-side
+  // generation work so progress bars cannot disappear until a page refresh.
+  useEffect(() => {
+    const cancelledRef = { current: false };
+    syncInProgressAds({ cancelledRef });
+    return () => { cancelledRef.current = true; };
+  }, [syncInProgressAds]);
+
+  usePolling(() => syncInProgressAds(), 5000, !!projectId);
 
   // Poll for status updates on restored queue items.
   const trackedGenerationCount = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && !g.error).length;
@@ -441,8 +455,12 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         try {
           const ad = await api.getAd(projectId, g.adExternalId);
           finalAds[g.adExternalId] = normalizeAdRecord(ad);
-        } catch {
-          finalAds[g.adExternalId] = { id: g.adExternalId, status: 'completed' };
+        } catch (err) {
+          finalAds[g.adExternalId] = {
+            id: g.adExternalId,
+            status: 'unknown',
+            error_message: err.message || 'Could not verify generation status yet.',
+          };
         }
       }));
 
@@ -455,7 +473,15 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           if (finalAd?.status === 'failed') {
             return { ...g, status: null, error: finalAd.error_message || 'Generation failed on server', progress: 0 };
           }
-          return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
+          if (isCompletedImageReady(finalAd)) {
+            return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
+          }
+          return {
+            ...g,
+            status: 'generating_image',
+            message: finalAd?.status === 'completed' ? 'Finalizing image preview...' : 'Verifying generation status...',
+            progress: Math.max(g.progress || 0, 95),
+          };
         }
 
         const currentAd = inProgressMap.get(g.adExternalId);
@@ -473,8 +499,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         return g;
       }));
 
-      const finalAdRows = Object.values(finalAds).filter(ad => ad?.id && ['completed', 'failed'].includes(ad.status));
-      const completedAds = finalAdRows.filter(ad => ad.status === 'completed');
+      const finalAdRows = Object.values(finalAds).filter(ad => ad?.id && (ad.status === 'failed' || isCompletedImageReady(ad)));
+      const completedAds = finalAdRows.filter(isCompletedImageReady);
       if (finalAdRows.length > 0) {
         setAds(prev => {
           const next = [...prev];
@@ -980,6 +1006,29 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     queueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
+  const handleGenerationCompleteEvent = (genId, eventAd, successMessage) => {
+    const nextAd = normalizeAdRecord(eventAd);
+    if (isCompletedImageReady(nextAd)) {
+      updateGen(genId, {
+        status: 'completed',
+        message: successMessage,
+        progress: 100,
+        adExternalId: nextAd.id,
+        source: 'sse',
+      });
+      setAds(prev => [nextAd, ...prev.filter(ad => ad.id !== nextAd.id)]);
+      return;
+    }
+
+    updateGen(genId, {
+      status: 'generating_image',
+      message: 'Finalizing image preview...',
+      progress: 95,
+      adExternalId: nextAd.id,
+      source: 'sse',
+    });
+  };
+
   const handleGenerate = async () => {
     // Create a unique ID for this generation
     const genId = ++genIdCounter.current;
@@ -998,7 +1047,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     }
 
     // Add this generation to active list
-    const newGen = { id: genId, label: genLabel, status: 'preparing', message: 'Preparing...', error: '', warning: '', progress: 1, startTime: Date.now() };
+    const isWaitingForTurn = activeGenCount > 0;
+    const newGen = { id: genId, label: genLabel, status: isWaitingForTurn ? 'queued' : 'preparing', message: isWaitingForTurn ? 'Waiting for the current ad to finish...' : 'Preparing...', error: '', warning: '', progress: isWaitingForTurn ? 0 : 1, startTime: Date.now() };
     setActiveGens(prev => [...prev, newGen]);
 
     // Notify with toast + scroll link
@@ -1013,6 +1063,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         </button>
       </span>
     );
+
+    const previousGeneration = singleGenerationQueueRef.current.catch(() => {});
+    const queuedRun = (async () => {
+    await previousGeneration;
+    updateGen(genId, { status: 'preparing', message: 'Preparing...', progress: 1 });
 
     // Track resized File objects across all attachments for the pre-flight combined-size check.
     const resizedFiles = [];
@@ -1065,9 +1120,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       } else if (event.type === 'warning') {
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
-        updateGen(genId, { status: 'completed', message: 'Ad generated successfully!', progress: 100 });
-        const nextAd = normalizeAdRecord(event.ad);
-        setAds(prev => [nextAd, ...prev.filter(ad => ad.id !== nextAd.id)]);
+        handleGenerationCompleteEvent(genId, event.ad, 'Ad generated successfully!');
       } else if (event.type === 'error') {
         updateGen(genId, { error: event.error, status: null });
       }
@@ -1179,7 +1232,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       clearProductImage();
     }
 
-    stream.done
+    await stream.done
       .then(() => {
         // Auto-dismiss successful generations after 5 seconds
         setTimeout(() => {
@@ -1195,6 +1248,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       .catch(err => {
         updateGen(genId, { error: err.message, status: null });
       });
+    })();
+    singleGenerationQueueRef.current = queuedRun.catch(() => {});
+    return queuedRun;
   };
 
   const handleDelete = async (adId) => {
@@ -1463,7 +1519,17 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     const genId = ++genIdCounter.current;
     const genLabel = sourceAd.angle || sourceAd.aspect_ratio || 'Regeneration';
 
-    const newGen = { id: genId, label: genLabel, status: 'preparing', message: 'Preparing regeneration...', error: '', warning: '', progress: 1, startTime: Date.now() };
+    const isWaitingForTurn = activeGenCount > 0;
+    const newGen = {
+      id: genId,
+      label: genLabel,
+      status: isWaitingForTurn ? 'queued' : 'preparing',
+      message: isWaitingForTurn ? 'Waiting for the current ad to finish...' : 'Preparing regeneration...',
+      error: '',
+      warning: '',
+      progress: isWaitingForTurn ? 0 : 1,
+      startTime: Date.now()
+    };
     setActiveGens(prev => [...prev, newGen]);
 
     toast.info(
@@ -1472,6 +1538,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         <button onClick={scrollToQueue} className="underline font-semibold hover:text-ed-accent/80 transition-colors">View Queue ↓</button>
       </span>
     );
+
+    const previousGeneration = singleGenerationQueueRef.current.catch(() => {});
+    const queuedRun = (async () => {
+    await previousGeneration;
+    updateGen(genId, { status: 'preparing', message: 'Preparing regeneration...', progress: 1 });
 
     const handleEvent = (event) => {
       if (event.type === 'status') {
@@ -1489,9 +1560,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       } else if (event.type === 'warning') {
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
-        updateGen(genId, { status: 'completed', message: 'Ad regenerated successfully!', progress: 100 });
-        const nextAd = normalizeAdRecord(event.ad);
-        setAds(prev => [nextAd, ...prev.filter(existing => existing.id !== nextAd.id)]);
+        handleGenerationCompleteEvent(genId, event.ad, 'Ad regenerated successfully!');
       } else if (event.type === 'error') {
         updateGen(genId, { error: event.error, status: null });
       }
@@ -1533,7 +1602,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       }, handleEvent);
     }
 
-    stream.done
+    await stream.done
       .then(() => {
         setTimeout(() => {
           setActiveGens(prev => {
@@ -1548,6 +1617,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       .catch(err => {
         updateGen(genId, { error: err.message, status: null });
       });
+    })();
+    singleGenerationQueueRef.current = queuedRun.catch(() => {});
+    return queuedRun;
   };
 
   // Edit prompt workflow — load ad's prompt into editor and scroll to top
@@ -1702,8 +1774,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
   // Filtered ads based on gallery filter (type) then date range
   // Stale-detection threshold: matches backend STUCK_ADS_THRESHOLD_MIN.
-  // Vercel function maxDuration is 60s; ads older than this are zombies.
-  const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
+  // Vercel function maxDuration is 300s; allow a buffer before surfacing zombies.
   const typeFilteredAds = ads.filter(ad => {
     // Hide in-progress ads from gallery (they show in the queue instead) — but only if FRESH.
     // Ads stuck in generating_* > 5 min are zombies (Vercel function timeout, crash, etc.).
@@ -1912,7 +1983,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       </div>
 
       {/* Generation Controls */}
-      <div className="ed-card p-6 md:p-8">
+      <div data-testid="ad-studio-generator" className="ed-card p-6 md:p-8">
         <div className="mb-5">
           <h3 className="font-serif text-[20px] tracking-[-0.01em] text-ed-ink mb-1 flex items-center gap-1.5">
             Generate ad
@@ -2430,6 +2501,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         {/* ── OPTIONAL FIELDS (collapsible) ── */}
         <div className="my-6">
           <button
+            data-testid="optional-fields-toggle"
             onClick={() => setOptionalOpen(prev => !prev)}
             className="w-full flex items-center justify-between px-4 py-3 bg-ed-bg border border-ed-line rounded-xl hover:border-ed-ink3 transition-colors text-left"
           >
@@ -2510,6 +2582,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                     </button>
                   </div>
                   <input
+                    data-testid="ad-angle-input"
                     value={angle}
                     onChange={e => setAngle(e.target.value)}
                     placeholder={generatingAngle ? 'Generating angle...' : 'e.g., "customer transformation story"'}
@@ -2545,6 +2618,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                     </button>
                   </div>
                   <input
+                    data-testid="ad-headline-input"
                     value={headline}
                     onChange={e => setHeadline(e.target.value)}
                     placeholder={generatingHeadline ? 'Generating headline...' : 'e.g., "Transform Your Skin in 30 Days"'}
@@ -2627,6 +2701,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   </div>
 
                   <textarea
+                    data-testid="ad-body-copy-input"
                     value={bodyCopy}
                     onChange={e => setBodyCopy(e.target.value)}
                     placeholder={generatingBody ? 'Generating body copy...' : 'Type body copy or click Generate to auto-create...'}
@@ -2658,6 +2733,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   Optional — only needed if you're noticing a recurring pattern in the output you'd like to correct.
                 </p>
                 <textarea
+                  data-testid="prompt-guidelines-input"
                   value={promptGuidelines}
                   onChange={e => handleGuidelinesChange(e.target.value)}
                   rows={2}
@@ -2939,6 +3015,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         {/* Generate Button — always enabled for parallel generation */}
         <div className="flex items-center gap-4 mt-6 pt-5 border-t border-ed-line">
           <button
+            data-testid="generate-ad-button"
             onClick={handleGenerate}
             className="ed-cta flex-1 sm:flex-initial sm:min-w-[220px] !py-3 !px-6 !rounded-[10px] !text-[14px]"
           >
@@ -2965,6 +3042,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       {/* Ad Queue */}
       <GenerationQueue
+        data-testid="generation-queue"
         ref={queueRef}
         activeGens={activeGens}
         genQueueExpanded={genQueueExpanded}
@@ -2974,7 +3052,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       />
 
       {/* Ad Gallery */}
-      <div ref={galleryRef} className="pt-4 border-t border-ed-line">
+      <div data-testid="ad-gallery" ref={galleryRef} className="pt-4 border-t border-ed-line">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="font-serif text-[22px] tracking-[-0.01em] text-ed-ink flex items-center gap-1.5">Ad Gallery <InfoTooltip text="All generated ads for this project. QA Passed ads were approved by the Creative Filter and may already be in Ready to Post. QA Rejected ads have images but failed QA, so you can review, tag, download, or delete them." position="right" /></h3>

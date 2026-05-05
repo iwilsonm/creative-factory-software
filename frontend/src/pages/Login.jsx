@@ -83,6 +83,7 @@ export default function Login() {
             <div>
               <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Username</label>
               <input
+                data-testid="login-username"
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
@@ -93,6 +94,7 @@ export default function Login() {
             <div>
               <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Password</label>
               <input
+                data-testid="login-password"
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -102,6 +104,7 @@ export default function Login() {
               />
             </div>
             <button
+              data-testid="login-submit"
               type="submit"
               disabled={loading}
               className="ed-cta w-full py-2.5"

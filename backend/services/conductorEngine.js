@@ -2479,11 +2479,15 @@ async function hydratePassingAdsForRounds(roundDetails, projectId, requiredPasse
   return { roundDetails: hydrated, cumulativePassingAds, recoveredAny };
 }
 
+function isLegacyAutoPostLogImportMessage(message) {
+  return String(message || '').includes("does not provide an export named 'createAutoPostLog'");
+}
+
 function isLegacyAutoPostLogImportFailure(run) {
   const combinedMessage = `${run?.failure_reason || ''} ${run?.error || ''}`;
   return run?.terminal_status === TEST_RUN_ORCHESTRATION_FAILURE_STATUS
     && run?.error_stage === 'post_score_round_processing'
-    && combinedMessage.includes("does not provide an export named 'createAutoPostLog'");
+    && isLegacyAutoPostLogImportMessage(combinedMessage);
 }
 
 function buildRepairRoundDetailsFromBatchInfos(batchInfos) {
@@ -3134,6 +3138,28 @@ async function continueBackgroundTestRun(run) {
       });
       return true;
     }
+
+    if (isLegacyAutoPostLogImportMessage(err?.message)) {
+      const roundNumber = batchInfo.round || (roundDetails.length + 1);
+      await updateConductorRun(runId, {
+        status: 'running',
+        terminal_status: 'filter_scoring_retry',
+        error: '',
+        failure_reason: '',
+        error_stage: '',
+        posting_days: getTestPostingDays(batchInfo.angle_name || batch.angle_name || ''),
+        batches_created: stringifyJSON(batchInfos),
+        rounds_json: stringifyJSON(roundDetails),
+        total_rounds: Math.max(roundDetails.length, roundNumber),
+        total_ads_generated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+        total_ads_scored: run.total_ads_scored || roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0),
+        total_ads_passed: run.total_ads_passed || roundDetails.at(-1)?.cumulative_passed || 0,
+        decisions: `Round ${roundNumber}: retrying Creative Filter after a non-critical deployment logging module finished deploying.`,
+      });
+      console.warn(`[Director] Background test run ${runId.slice(0, 8)} hit legacy auto-post log import during ${backgroundErrorStage}; retrying instead of failing terminally.`);
+      return true;
+    }
+
     if (activeRoundState?.rawScoreResult) {
       const priorScored = run.total_ads_scored || roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0);
       const priorPassed = run.total_ads_passed || roundDetails.at(-1)?.cumulative_passed || 0;
@@ -3197,11 +3223,17 @@ export async function resumeBackgroundTestRuns() {
     const testRuns = runs.filter((run) => run.run_type === 'test');
     const candidate = testRuns.find((run) => run.status === 'running')
       || testRuns.find(isRecoverableScoringTestRun)
-      || testRuns.find(isGeminiBackgroundWaitFailure);
+      || testRuns.find(isGeminiBackgroundWaitFailure)
+      || testRuns.find(isLegacyAutoPostLogImportFailure);
 
     if (!candidate) continue;
 
     try {
+      if (isLegacyAutoPostLogImportFailure(candidate)) {
+        await repairDeployFailedTestRun(projectId, candidate.externalId);
+        summary.resumed += 1;
+        continue;
+      }
       const handled = await continueBackgroundTestRun(candidate);
       if (handled) summary.resumed += 1;
     } catch (err) {

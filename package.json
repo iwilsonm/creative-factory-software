@@ -10,6 +10,14 @@
     "convex": "^1.18.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["bcrypt", "better-sqlite3", "sharp", "esbuild"]
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "better-sqlite3",
+      "sharp",
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
   }
 }

@@ -38,7 +38,7 @@ import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getAllInspirationImages, getInspirationImageUrl,
   getTemplateImagesByProject, getAllTemplateImages,
-  getAdImageUrl, getSetting, convexClient, api
+  getAdImageUrl, getSetting, convexClient, api, invalidateQueryCache
 } from '../convexClient.js';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -61,6 +61,32 @@ async function precacheThumb(adId, imageBuffer) {
       .toBuffer();
     fs.writeFile(path.join(THUMB_CACHE_DIR, `${adId}.jpg`), thumb, () => {});
   } catch (e) { /* non-critical */ }
+}
+
+async function createAdCreative(fields) {
+  await convexClient.mutation(api.adCreatives.create, {
+    ...fields,
+    last_progress_at: new Date().toISOString(),
+  });
+  invalidateQueryCache('ad_creatives');
+}
+
+async function updateAdCreative(adId, fields) {
+  await convexClient.mutation(api.adCreatives.update, {
+    externalId: adId,
+    last_progress_at: new Date().toISOString(),
+    ...fields,
+  });
+  invalidateQueryCache('ad_creatives');
+}
+
+function emitProgress(emit, adId, event) {
+  emit({ type: 'status', adId, ...event });
+  updateAdCreative(adId, {
+    status: event.status,
+    error_message: null,
+    failure_stage: null,
+  }).catch(() => {});
 }
 
 const EXT_TO_MIME = {
@@ -510,7 +536,7 @@ export async function generateAd(projectId, options = {}) {
   // Create ad record at the start
   const adId = uuidv4();
   emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2, adId });
-  await convexClient.mutation(api.adCreatives.create, {
+  await createAdCreative({
     externalId: adId,
     project_id: projectId,
     generation_mode: 'mode1',
@@ -549,8 +575,7 @@ export async function generateAd(projectId, options = {}) {
 
     // Update the inspiration_image_id in the record (fire-and-forget, don't block)
     if (!useUploadedImage && inspiration.fileId) {
-      convexClient.mutation(api.adCreatives.update, {
-        externalId: adId,
+      updateAdCreative(adId, {
         inspiration_image_id: inspiration.fileId,
       }).catch(() => {});
     }
@@ -561,7 +586,7 @@ export async function generateAd(projectId, options = {}) {
 
     let imagePrompt = await withHeavyLLMLimit(async () => {
       // Message 1: Creative director prompt + foundational docs
-      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
+      emitProgress(emit, adId, { status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
       const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
       const acknowledgment = await chat(
@@ -571,7 +596,7 @@ export async function generateAd(projectId, options = {}) {
       );
 
       // Message 2: Inspiration image + optional product image + instructions
-      emit({ type: 'status', status: 'generating_copy', message: hasProductImage
+      emitProgress(emit, adId, { status: 'generating_copy', message: hasProductImage
         ? 'GPT-5.2 analyzing inspiration image + product image...'
         : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
@@ -618,7 +643,7 @@ export async function generateAd(projectId, options = {}) {
 
     // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
     if (project.prompt_guidelines) {
-      emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
+      emitProgress(emit, adId, { status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
     }
 
@@ -626,8 +651,7 @@ export async function generateAd(projectId, options = {}) {
     const extractionPromise = extractHeadlineAndBody(imagePrompt);
 
     // Update record with GPT output
-    await convexClient.mutation(api.adCreatives.update, {
-      externalId: adId,
+    await updateAdCreative(adId, {
       gpt_creative_output: imagePrompt,
       image_prompt: imagePrompt,
       status: 'generating_image',
@@ -640,7 +664,8 @@ export async function generateAd(projectId, options = {}) {
         if (extractedHeadline && !headline) updates.headline = extractedHeadline;
         if (extractedBody && !bodyCopy) updates.body_copy = extractedBody;
         if (updates.headline || updates.body_copy) {
-          convexClient.mutation(api.adCreatives.update, updates).catch(() => {});
+          const { externalId, ...fields } = updates;
+          updateAdCreative(externalId, fields).catch(() => {});
         }
       }
     }).catch(() => {});
@@ -661,12 +686,10 @@ export async function generateAd(projectId, options = {}) {
 
   } catch (err) {
     // Mark as failed
-    await convexClient.mutation(api.adCreatives.update, {
-      externalId: adId,
+    await updateAdCreative(adId, {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'ad_generation',
-      last_progress_at: new Date().toISOString(),
     });
     emit({ type: 'error', error: err.message });
     throw err;
@@ -731,7 +754,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   const imageGen = resolveImageProvider(imageModel);
   const isOpenAIImage = isOpenAIImageModel(imageModel);
   const providerProductImage = isOpenAIImage ? null : productImage;
-  emit({ type: 'status', status: 'generating_image', message: (productImage || renderReferenceImages.length > 0)
+  emitProgress(emit, adId, { status: 'generating_image', message: (productImage || renderReferenceImages.length > 0)
     ? `Generating image with ${modelLabel} (with product reference)...`
     : `Generating image with ${modelLabel}...`, progress: 70 });
 
@@ -741,7 +764,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   });
 
   if (isOpenAIImage) {
-    emit({ type: 'status', status: 'generating_image', message: 'Reviewing generated ad...', progress: 88 });
+    emitProgress(emit, adId, { status: 'generating_image', message: 'Reviewing generated ad...', progress: 88 });
     const qa = await assessGPTImageRender({
       imageBuffer,
       mimeType: imgMime,
@@ -755,7 +778,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     }
   }
 
-  emit({ type: 'status', status: 'generating_image', message: 'Uploading image...', progress: 90 });
+  emitProgress(emit, adId, { status: 'generating_image', message: 'Uploading image...', progress: 90 });
 
   // Upload image to Convex storage
   const storageId = await uploadBuffer(imageBuffer, imgMime);
@@ -764,10 +787,11 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   precacheThumb(adId, imageBuffer);
 
   // Update final record
-  await convexClient.mutation(api.adCreatives.update, {
-    externalId: adId,
+  await updateAdCreative(adId, {
     storageId,
     status: 'completed',
+    error_message: null,
+    failure_stage: null,
   });
 
   // Return the completed ad record with direct CDN URL for fast loading
@@ -828,7 +852,7 @@ export async function generateAdMode2(projectId, options = {}) {
   // Create ad record
   const adId = uuidv4();
   emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2, adId });
-  await convexClient.mutation(api.adCreatives.create, {
+  await createAdCreative({
     externalId: adId,
     project_id: projectId,
     generation_mode: 'mode2',
@@ -867,7 +891,7 @@ export async function generateAdMode2(projectId, options = {}) {
 
     let imagePrompt = await withHeavyLLMLimit(async () => {
       // Message 1: Creative director prompt + foundational docs
-      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
+      emitProgress(emit, adId, { status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
       const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
       const acknowledgment = await chat(
@@ -877,7 +901,7 @@ export async function generateAdMode2(projectId, options = {}) {
       );
 
       // Message 2: Template image + optional product image + instructions
-      emit({ type: 'status', status: 'generating_copy', message: hasProductImage
+      emitProgress(emit, adId, { status: 'generating_copy', message: hasProductImage
         ? 'GPT-5.2 analyzing template image + product image...'
         : 'GPT-5.2 analyzing template image...', progress: 35 });
 
@@ -924,7 +948,7 @@ export async function generateAdMode2(projectId, options = {}) {
 
     // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
     if (project.prompt_guidelines) {
-      emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
+      emitProgress(emit, adId, { status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
     }
 
@@ -932,8 +956,7 @@ export async function generateAdMode2(projectId, options = {}) {
     const extractionPromise = extractHeadlineAndBody(imagePrompt);
 
     // Update record with GPT output
-    await convexClient.mutation(api.adCreatives.update, {
-      externalId: adId,
+    await updateAdCreative(adId, {
       gpt_creative_output: imagePrompt,
       image_prompt: imagePrompt,
       status: 'generating_image',
@@ -946,7 +969,8 @@ export async function generateAdMode2(projectId, options = {}) {
         if (extractedHeadline && !headline) updates.headline = extractedHeadline;
         if (extractedBody && !bodyCopy) updates.body_copy = extractedBody;
         if (updates.headline || updates.body_copy) {
-          convexClient.mutation(api.adCreatives.update, updates).catch(() => {});
+          const { externalId, ...fields } = updates;
+          updateAdCreative(externalId, fields).catch(() => {});
         }
       }
     }).catch(() => {});
@@ -966,12 +990,10 @@ export async function generateAdMode2(projectId, options = {}) {
     return ad;
 
   } catch (err) {
-    await convexClient.mutation(api.adCreatives.update, {
-      externalId: adId,
+    await updateAdCreative(adId, {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'ad_generation_mode2',
-      last_progress_at: new Date().toISOString(),
     });
     emit({ type: 'error', error: err.message });
     throw err;
@@ -2329,7 +2351,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
 
   // Create new ad record
   const adId = uuidv4();
-  await convexClient.mutation(api.adCreatives.create, {
+  await createAdCreative({
     externalId: adId,
     project_id: projectId,
     generation_mode: 'image_only',
@@ -2366,12 +2388,11 @@ export async function regenerateImageOnly(projectId, options = {}) {
     // Apply prompt guidelines if set
     let finalPrompt = imagePrompt.trim();
     if (project.prompt_guidelines) {
-      emit({ type: 'status', status: 'generating_image', message: 'Reviewing prompt against guidelines...', progress: 20 });
+      emitProgress(emit, adId, { status: 'generating_image', message: 'Reviewing prompt against guidelines...', progress: 20 });
       finalPrompt = await reviewPromptWithGuidelines(finalPrompt, project.prompt_guidelines);
       // Update the stored prompt if it changed
       if (finalPrompt !== imagePrompt.trim()) {
-        await convexClient.mutation(api.adCreatives.update, {
-          externalId: adId,
+        await updateAdCreative(adId, {
           image_prompt: finalPrompt,
           gpt_creative_output: finalPrompt,
         });
@@ -2401,12 +2422,10 @@ export async function regenerateImageOnly(projectId, options = {}) {
     return ad;
 
   } catch (err) {
-    await convexClient.mutation(api.adCreatives.update, {
-      externalId: adId,
+    await updateAdCreative(adId, {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'image_regeneration',
-      last_progress_at: new Date().toISOString(),
     });
     emit({ type: 'error', error: err.message });
     throw err;

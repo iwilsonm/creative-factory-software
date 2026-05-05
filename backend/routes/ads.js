@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, markStaleAdsAsFailed, uploadBuffer, setProjectProductImage, convexClient, api } from '../convexClient.js';
 
-// Vercel function maxDuration is 60s. Anything older is definitively a zombie.
-// Allow 4-min buffer for cold starts and clock skew. Update if vercel.json maxDuration changes.
-const STUCK_ADS_THRESHOLD_MIN = 5;
+// Vercel function maxDuration for api/index.js is 300s. Give the live request
+// a buffer before treating the row as a zombie so active UI progress does not
+// disappear right at the gateway cutoff.
+const STUCK_ADS_THRESHOLD_MIN = 8;
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit, assertTemplateTagHasActiveTemplates, normalizeTemplateTag } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat } from '../services/openai.js';

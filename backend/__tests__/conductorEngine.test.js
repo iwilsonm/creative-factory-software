@@ -709,6 +709,93 @@ describe('conductorEngine test-run pipeline', () => {
     expect(mockScoreBatchForInlineFilter).not.toHaveBeenCalled();
   });
 
+  it('retries a background round instead of terminally failing on legacy auto-post log import skew', async () => {
+    const runAt = Date.parse('2026-05-04T10:00:00Z');
+    mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: runAt,
+        status: 'running',
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 1, round: 1 },
+        ]),
+        rounds_json: '[]',
+        total_ads_generated: 1,
+        total_ads_scored: 0,
+        total_ads_passed: 0,
+        required_passes: 1,
+        ads_per_round: 1,
+      },
+    ]);
+    mockGetBatchJob.mockResolvedValue({
+      id: 'batch-uuid-1',
+      externalId: 'batch-uuid-1',
+      status: 'completed',
+      angle_name: 'The Sleep Hacks Are Exhausting',
+      angle_prompt: 'Sleep angle',
+      angle_brief: null,
+      batch_size: 1,
+    });
+    mockScoreBatchForInlineFilter.mockRejectedValueOnce(new Error("The requested module '../convexClient.js' does not provide an export named 'createAutoPostLog'"));
+
+    const { resumeBackgroundTestRuns } = await importConductorEngine();
+    const result = await resumeBackgroundTestRuns();
+
+    expect(result).toEqual({ checked: 1, resumed: 1, errors: 0 });
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      status: 'running',
+      terminal_status: 'filter_scoring_retry',
+      error: '',
+      failure_reason: '',
+    }));
+    expect(mockUpdateConductorRun).not.toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      terminal_status: 'orchestration_failed',
+    }));
+  });
+
+  it('auto-repairs legacy auto-post-log import failed runs during background resume', async () => {
+    const runAt = Date.parse('2026-05-04T10:00:00Z');
+    mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: runAt,
+        status: 'failed',
+        terminal_status: 'orchestration_failed',
+        error_stage: 'post_score_round_processing',
+        failure_reason: "The requested module '../convexClient.js' does not provide an export named 'createAutoPostLog'",
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 1, round: 1 },
+        ]),
+        rounds_json: '[]',
+        total_ads_generated: 1,
+        total_ads_scored: 0,
+        total_ads_passed: 0,
+        required_passes: 1,
+        ads_per_round: 1,
+      },
+    ]);
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 1, 1));
+
+    const { resumeBackgroundTestRuns } = await importConductorEngine();
+    const result = await resumeBackgroundTestRuns();
+
+    expect(result).toEqual({ checked: 1, resumed: 1, errors: 0 });
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+    expect(mockScoreBatchForInlineFilter).toHaveBeenCalledWith('batch-uuid-1', 'proj-1', null, expect.objectContaining({
+      roundNumber: 1,
+    }));
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj-1',
+      targetCount: 1,
+    }));
+  });
+
   it('cancels durable background test runs instead of only in-memory runs', async () => {
     mockGetConductorRuns.mockResolvedValue([
       {

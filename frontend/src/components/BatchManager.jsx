@@ -668,6 +668,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   <InfoTooltip text="How many image attempts this background batch should create. This is generated volume, not the number of ads that will pass QA." position="right" />
                 </label>
                 <input
+                  data-testid="batch-size-input"
                   type="number"
                   min={1}
                   max={50}
@@ -1146,6 +1147,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
             {/* Submit buttons */}
             <div className="flex items-center gap-2">
               <button
+                data-testid="batch-generate-button"
                 onClick={handleCreate}
                 disabled={creating || submittingQueue || (isScheduled && !getEffectiveCron())}
                 className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[13px]"

@@ -451,7 +451,15 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount, angleBrief, priorHeadlines);
   const initialCandidates = Array.isArray(headlineResult.headlines) ? headlineResult.headlines : [];
   const sceneAlignedPool = filterSceneAlignedHeadlines(initialCandidates, angleBrief);
-  const dedupedPool = filterHeadlineCandidatePool(sceneAlignedPool.survivors, priorHeadlines);
+  let sceneFallbackUsed = false;
+  const initialHeadlinePool = sceneAlignedPool.survivors.length > 0
+    ? sceneAlignedPool.survivors
+    : initialCandidates;
+  if (sceneAlignedPool.sceneLocked && sceneAlignedPool.survivors.length === 0 && initialCandidates.length > 0) {
+    sceneFallbackUsed = true;
+    console.warn(`[BatchProcessor] Stage 1 scene alignment filtered every headline for batch ${batchId}; falling back to ranked candidates so generation can continue.`);
+  }
+  const dedupedPool = filterHeadlineCandidatePool(initialHeadlinePool, priorHeadlines);
   let selection = selectDiverseHeadlines(dedupedPool.survivors, batch.batch_size);
   let finalHeadlines = selection.selected;
   let regenCandidateCount = 0;
@@ -484,7 +492,14 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
       ...(Array.isArray(regenResult.headlines) ? regenResult.headlines : []),
     ].filter((headline) => !selectedNormalized.has(normalizeHeadlineText(headline.headline)));
     regenSceneAlignedPool = filterSceneAlignedHeadlines(secondPassPool, angleBrief);
-    regenDedupedPool = filterHeadlineCandidatePool(regenSceneAlignedPool.survivors, regenSeedHistory);
+    const regenHeadlinePool = regenSceneAlignedPool.survivors.length > 0
+      ? regenSceneAlignedPool.survivors
+      : secondPassPool;
+    if (regenSceneAlignedPool.sceneLocked && regenSceneAlignedPool.survivors.length === 0 && secondPassPool.length > 0) {
+      sceneFallbackUsed = true;
+      console.warn(`[BatchProcessor] Stage 1 regeneration scene alignment filtered every headline for batch ${batchId}; falling back to ranked candidates.`);
+    }
+    regenDedupedPool = filterHeadlineCandidatePool(regenHeadlinePool, regenSeedHistory);
     selection = selectDiverseHeadlines(regenDedupedPool.survivors, batch.batch_size, finalHeadlines);
     finalHeadlines = selection.selected;
   }
@@ -530,6 +545,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     headline_candidates: initialCandidates.length + regenCandidateCount,
     scene_alignment_rejections: sceneAlignmentRejections,
     scene_alignment_reason_counts: sceneAlignmentReasonCounts,
+    scene_alignment_fallback_used: sceneFallbackUsed,
     duplicate_rejections: duplicateRejections,
     history_rejections: historyRejections,
     lane_count: Object.keys(laneDistribution).length,

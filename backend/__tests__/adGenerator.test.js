@@ -13,6 +13,7 @@ vi.mock('../convexClient.js', () => ({
   getAllTemplateImages: vi.fn(),
   getAdImageUrl: vi.fn(),
   getSetting: vi.fn(),
+  invalidateQueryCache: vi.fn(),
   convexClient: { query: vi.fn(), mutation: vi.fn() },
   api: {},
 }));

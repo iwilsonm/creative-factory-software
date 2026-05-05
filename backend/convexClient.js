@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './services/retry.js';
 import { ensureArray } from './utils/collections.js';
 import { compactConvexWrite } from './services/adSetPlanner.js';
+import { buildStaleAdRepairUpdate, getAdProgressTime } from './utils/adGenerationRecovery.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -407,7 +408,7 @@ function convexDocToRow(d) {
 // =============================================
 
 export async function getAdsByProject(projectId) {
-  const ads = ensureArray(await cachedQuery('ad_creatives', api.adCreatives.getGalleryByProject, { projectId }), 'convexClient.getAdsByProject');
+  const ads = ensureArray(await queryWithRetry(api.adCreatives.getGalleryByProject, { projectId }), 'convexClient.getAdsByProject');
   return ads.map(convexAdSummaryToRow);
 }
 
@@ -548,7 +549,7 @@ export async function getAdSummariesByExternalIds(externalIds) {
 }
 
 export async function getAd(id) {
-  const ad = await cachedQuery('ad_creatives', api.adCreatives.getByExternalId, { externalId: id });
+  const ad = await queryWithRetry(api.adCreatives.getByExternalId, { externalId: id });
   if (!ad) return null;
   return convexAdToRow(ad);
 }
@@ -559,12 +560,12 @@ export async function getAllAds() {
 }
 
 export async function getInProgressAdsByProject(projectId) {
-  const ads = ensureArray(await cachedQuery('ad_creatives', api.adCreatives.getInProgressByProject, { projectId }), 'convexClient.getInProgressAdsByProject');
+  const ads = ensureArray(await queryWithRetry(api.adCreatives.getInProgressByProject, { projectId }), 'convexClient.getInProgressAdsByProject');
   return ads.map(a => convexAdToRow(a));
 }
 
 export async function getAdImageUrl(id) {
-  return await cachedQuery('ad_creatives', api.adCreatives.getImageUrl, { externalId: id });
+  return await queryWithRetry(api.adCreatives.getImageUrl, { externalId: id });
 }
 
 export async function getAdsByBatchId(batchId) {
@@ -590,12 +591,14 @@ export async function markStaleAdsAsFailed(projectId, opts = {}) {
     if (repaired >= maxRepairs) break;
     // Status precondition: only act on ads still in generating state.
     if (ad.status !== 'generating_copy' && ad.status !== 'generating_image') continue;
-    const ts = new Date(ad.created_at).getTime();
+    const ts = getAdProgressTime(ad);
     if (!Number.isFinite(ts) || ts > cutoff) continue;
+    const update = buildStaleAdRepairUpdate(ad);
+    if (!update) continue;
     try {
       await mutationWithRetry(api.adCreatives.update, {
         externalId: ad.externalId,
-        status: 'failed',
+        ...update,
       });
       repaired += 1;
     } catch (err) {
