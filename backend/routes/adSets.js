@@ -283,18 +283,19 @@ router.post('/:projectId/ad-sets/:adSetId/post-to-meta', requireRole('admin', 'm
         error: `Cannot post ad set with lifecycle "${adSet.lifecycle_status}" — only Ready ad sets can be posted.`,
       });
     }
-    const result = await postAdSetToMeta(req.params.adSetId, req.params.projectId);
+    const result = await postAdSetToMeta(req.params.adSetId, req.params.projectId, req.body || {});
     res.json({ success: true, ...result });
   } catch (err) {
     const status = err.code === 'TOKEN_EXPIRED' ? 401
       : err.code === 'NO_PAGE' || err.code === 'NO_ACCOUNT' || err.code === 'NOT_CONNECTED' || err.code === 'NO_ADS' ? 400
       : err.code === 'WRONG_PROJECT' ? 403
       : err.code === 'MCP_NOT_AUTHORIZED' ? 403
+      : err.code === 'API_CONFIRMATION_REQUIRED' ? 400
       : 500;
     const message = err.code === 'MCP_NOT_AUTHORIZED'
       ? 'Meta did not authorize MCP for this selected ad account/app. Go to Project Settings → Meta and run Check MCP Access, or switch Posting Path if you intentionally want another path.'
       : err.message;
-    res.status(status).json({ error: message, code: err.code || null });
+    res.status(status).json({ error: message, code: err.code || null, stage: err.stage || null, details: err.details || null });
   }
 });
 
@@ -542,18 +543,19 @@ router.post('/:projectId/staging/adsets/:adSetId/post-to-meta', requireRole('adm
         error: `Cannot post ad set with lifecycle "${adSet.lifecycle_status}" — only Ready/promoted sets can be posted`,
       });
     }
-    const result = await postAdSetToMeta(req.params.adSetId, req.params.projectId);
+    const result = await postAdSetToMeta(req.params.adSetId, req.params.projectId, req.body || {});
     res.json({ success: true, ...result });
   } catch (err) {
     const status = err.code === 'TOKEN_EXPIRED' ? 401
       : err.code === 'NO_PAGE' || err.code === 'NO_ACCOUNT' || err.code === 'NOT_CONNECTED' || err.code === 'NO_ADS' ? 400
       : err.code === 'WRONG_PROJECT' ? 403
       : err.code === 'MCP_NOT_AUTHORIZED' ? 403
+      : err.code === 'API_CONFIRMATION_REQUIRED' ? 400
       : 500;
     const message = err.code === 'MCP_NOT_AUTHORIZED'
       ? 'Meta did not authorize MCP for this selected ad account/app. Go to Project Settings → Meta and run Check MCP Access, or switch Posting Path if you intentionally want another path.'
       : err.message;
-    res.status(status).json({ error: message, code: err.code || null });
+    res.status(status).json({ error: message, code: err.code || null, stage: err.stage || null, details: err.details || null });
   }
 });
 

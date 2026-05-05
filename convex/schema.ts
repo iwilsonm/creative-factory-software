@@ -387,6 +387,8 @@ export default defineSchema({
     facebook_page: v.optional(v.string()),        // Facebook Page name to post from
     posted_by: v.optional(v.string()),            // Who will post this ad (e.g. "Corinne", "Liz")
     duplicate_adset_name: v.optional(v.string()), // Name for the duplicated ad set in Ads Manager
+    meta_ad_id: v.optional(v.string()),           // Meta-side ad ID after posting this deployment
+    meta_post_error: v.optional(v.string()),      // Posting error for this deployment
     // Phase 6 — soft-lock TTL during Combine modal to prevent concurrent delete
     lock_expires_at: v.optional(v.number()),     // ms timestamp; lock auto-expires
     created_at: v.string(),

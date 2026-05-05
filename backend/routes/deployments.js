@@ -42,6 +42,7 @@ import { chat as claudeChat } from '../services/anthropic.js';
 import { listSafeFieldNames } from '../security.js';
 import { fetchUrlText, safeUrlForLogs } from '../services/urlFetcher.js';
 import { moveDeploymentsToPlanner } from '../services/adSetPlanner.js';
+import { postDeploymentToMeta } from '../services/metaWriter.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -199,6 +200,8 @@ router.get('/deployments', async (req, res) => {
           duplicate_adset_name: dep.duplicate_adset_name || null,
           campaign_name: dep.campaign_name || null,
           ad_set_name: dep.ad_set_name || null,
+          meta_ad_id: dep.meta_ad_id || null,
+          meta_post_error: dep.meta_post_error || null,
           ad: compactDeploymentAd(ad),
           imageUrl,
           projectName: depProjectName,
@@ -384,6 +387,37 @@ router.put('/deployments/:id/status', async (req, res) => {
   } catch (err) {
     console.error('Failed to update deployment status:', err);
     res.status(500).json({ error: 'Failed to update deployment status' });
+  }
+});
+
+/**
+ * POST /deployments/:id/post-to-meta — Create this Ready-to-Post ad in Meta,
+ * then move it to Posted only after Meta confirms the ad was created.
+ */
+router.post('/deployments/:id/post-to-meta', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { projectId, ...options } = req.body || {};
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId required', code: 'PROJECT_REQUIRED' });
+    }
+    const result = await postDeploymentToMeta(req.params.id, projectId, options);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    const status = err.code === 'TOKEN_EXPIRED' ? 401
+      : ['NO_PAGE', 'NO_ACCOUNT', 'NOT_CONNECTED', 'NO_ADS', 'NOT_READY', 'API_CONFIRMATION_REQUIRED', 'IMAGE_UPLOAD_FAILED'].includes(err.code) ? 400
+      : err.code === 'WRONG_PROJECT' ? 403
+      : err.code === 'MCP_NOT_AUTHORIZED' ? 403
+      : err.code === 'NOT_FOUND' ? 404
+      : 500;
+    const message = err.code === 'MCP_NOT_AUTHORIZED'
+      ? 'Meta did not authorize MCP for this selected ad account/app. Go to Project Settings → Meta and run Check MCP Access, or switch Posting Path if you intentionally want another path.'
+      : err.message;
+    res.status(status).json({
+      error: message,
+      code: err.code || null,
+      stage: err.stage || null,
+      details: err.details || null,
+    });
   }
 });
 

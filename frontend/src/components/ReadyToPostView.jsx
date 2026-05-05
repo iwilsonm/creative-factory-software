@@ -72,6 +72,136 @@ function parseTextList(value) {
   }
 }
 
+function PostToMetaModal({
+  open,
+  items,
+  postingPath,
+  deliveryMode,
+  setDeliveryMode,
+  scheduleTime,
+  setScheduleTime,
+  riskAccepted,
+  setRiskAccepted,
+  apiConfirmText,
+  setApiConfirmText,
+  error,
+  busy,
+  onClose,
+  onConfirm,
+}) {
+  if (!open || typeof document === 'undefined') return null;
+  const isApi = postingPath === 'api';
+  const needsSchedule = deliveryMode === 'scheduled';
+  const canConfirm = !busy
+    && riskAccepted
+    && (!needsSchedule || !!scheduleTime)
+    && (!isApi || apiConfirmText === 'POST VIA API');
+  const count = (items || []).reduce((sum, item) => sum + (item.count || 1), 0);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={busy ? undefined : onClose} />
+      <div className="relative w-full max-w-[560px] max-h-[92vh] overflow-hidden rounded-2xl bg-ed-surface shadow-card-hover">
+        <div className="px-5 py-4 border-b border-ed-line">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-ed-rust font-bold">Meta posting risk acknowledgement</p>
+          <h2 className="text-[18px] font-semibold text-ed-ink mt-1">Post to Meta</h2>
+          <p className="text-[12px] text-ed-ink2 mt-1">
+            This will create Meta ad objects for {count} ad{count === 1 ? '' : 's'} using the selected Posting Path.
+          </p>
+        </div>
+
+        <div className="p-5 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(92vh - 154px)' }}>
+          <div className={`rounded-xl border p-4 ${isApi ? 'border-ed-rust/50 bg-ed-rust/10' : 'border-ed-accent/30 bg-ed-accent/10'}`}>
+            <p className={`text-[12px] font-bold ${isApi ? 'text-ed-rust' : 'text-ed-ink'}`}>
+              {isApi ? 'Severe Direct API posting warning' : 'Automatic posting warning'}
+            </p>
+            <p className={`text-[12px] leading-relaxed mt-2 ${isApi ? 'text-ed-rust' : 'text-ed-ink2'}`}>
+              {isApi
+                ? 'Direct API posting is not recommended. Historically, some advertisers have had accounts restricted or banned after posting ads through the API. By continuing, you accept that risk and understand Dacia Automation assumes no responsibility.'
+                : 'This will automatically create ad objects in Meta. Automatic posting carries inherent account and delivery risk. Dacia Automation does not assume responsibility for account restrictions, rejected ads, delivery problems, or spend created after you choose to post.'}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-ed-line p-4 space-y-3">
+            <p className="text-[12px] font-semibold text-ed-ink">Delivery</p>
+            {[
+              { id: 'active', label: 'Active now', helper: 'Create the Meta ads as active immediately.' },
+              { id: 'scheduled', label: 'Schedule start time', helper: 'Create the ads active with a future start time.' },
+              { id: 'paused', label: 'Create paused', helper: 'Create the ads paused so you can review in Ads Manager first.' },
+            ].map((option) => (
+              <label key={option.id} className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  checked={deliveryMode === option.id}
+                  onChange={() => setDeliveryMode(option.id)}
+                  className="mt-0.5 rounded-full border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20"
+                />
+                <span>
+                  <span className="block text-[13px] font-medium text-ed-ink">{option.label}</span>
+                  <span className="block text-[11px] text-ed-ink2">{option.helper}</span>
+                </span>
+              </label>
+            ))}
+            {needsSchedule && (
+              <input
+                type="datetime-local"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[13px] w-full"
+              />
+            )}
+          </div>
+
+          <label className="flex items-start gap-2 rounded-xl border border-ed-line p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={riskAccepted}
+              onChange={(e) => setRiskAccepted(e.target.checked)}
+              className="mt-0.5 rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20"
+            />
+            <span className="text-[12px] text-ed-ink2 leading-relaxed">
+              I understand this posts to Meta automatically, carries inherent risk, and Dacia Automation assumes no responsibility for restrictions, rejected ads, delivery issues, or spend after I choose to post.
+            </span>
+          </label>
+
+          {isApi && (
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-widest text-ed-rust">Type POST VIA API to continue</label>
+              <input
+                value={apiConfirmText}
+                onChange={(e) => setApiConfirmText(e.target.value)}
+                placeholder="POST VIA API"
+                className="input-apple !border-ed-rust/40 focus:!ring-ed-rust/20 focus:!border-ed-rust text-[13px] w-full mt-1"
+              />
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-xl border border-ed-rust/30 bg-ed-rust/10 p-3 text-[12px] text-ed-rust leading-relaxed">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-ed-line flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="ed-ghost text-[12px] px-4 py-2">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!canConfirm}
+            className={`px-4 py-2 rounded-lg text-[12px] font-bold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isApi ? 'bg-ed-rust hover:bg-ed-rust/90' : 'bg-ed-accent hover:bg-ed-accent/90'}`}
+          >
+            {busy ? 'Posting...' : isApi ? 'Post via API — I accept the risk' : 'Post to Meta'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
  *
@@ -118,6 +248,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [previewImage, setPreviewImage] = useState(null);
+  const [metaStatus, setMetaStatus] = useState(null);
+  const [postMetaModal, setPostMetaModal] = useState(null); // { items: [{ type, id, label, count }] } | null
+  const [postingMeta, setPostingMeta] = useState(false);
+  const [postMetaError, setPostMetaError] = useState('');
+  const [postDeliveryMode, setPostDeliveryMode] = useState('active');
+  const [postScheduleTime, setPostScheduleTime] = useState('');
+  const [postRiskAccepted, setPostRiskAccepted] = useState(false);
+  const [apiConfirmText, setApiConfirmText] = useState('');
 
   const toggleCardSelection = (cardKey, cardType) => {
     setSelectedCards(prev => {
@@ -184,13 +322,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     try {
       // Phase 6.20b — native ad_set fetch (lifecycle='ready') + inline compose
       // of flex-shape from current deployments prop. No api.js adapter call.
-      const [campData, readyAdSets] = await Promise.all([
+      const [campData, readyAdSets, metaConnection] = await Promise.all([
         api.getCampaigns(projectId),
         api.getAdSets(projectId, ['ready']),
+        api.getMetaConnectionStatus(projectId).catch(() => null),
       ]);
       const safeReady = Array.isArray(readyAdSets) ? readyAdSets : (readyAdSets?.adSets ?? []);
       setCampaigns(ensureArray(campData?.campaigns, 'ReadyToPostView.campaigns'));
       setAdSets(ensureArray(campData?.adSets, 'ReadyToPostView.adSets'));
+      setMetaStatus(metaConnection);
       const composed = safeReady.map(s => composeFlexFromAdSet(s, deployments));
       setFlexAds(composed);
     } catch (err) {
@@ -270,6 +410,116 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       })
     );
     setSelectedCards(new Map());
+  };
+
+  const getPostingPath = () => metaStatus?.posting_path || metaStatus?.integration_path || 'mcp';
+
+  const resetPostMetaState = () => {
+    setPostDeliveryMode('active');
+    setPostScheduleTime('');
+    setPostRiskAccepted(false);
+    setApiConfirmText('');
+    setPostMetaError('');
+  };
+
+  const openPostToMetaModal = (items) => {
+    resetPostMetaState();
+    setPostMetaModal({ items: ensureArray(items, 'ReadyToPostView.postMetaItems') });
+  };
+
+  const closePostToMetaModal = () => {
+    if (postingMeta) return;
+    setPostMetaModal(null);
+    setPostMetaError('');
+  };
+
+  const selectedItemsForMetaPost = () => {
+    const items = [];
+    for (const [cardKey, cardType] of selectedCards) {
+      if (cardType === 'flex') {
+        const flexId = cardKey.replace(/^flex-/, '');
+        const flexAd = safeFlexAds.find(f => f.id === flexId);
+        if (!flexAd) continue;
+        const childCount = getFlexChildDeps(flexAd).length || 1;
+        items.push({ type: 'flex', id: flexAd.id, label: flexAd.name || 'Ready ad set', count: childCount });
+      } else {
+        const dep = readyDeps.find(d => d.id === cardKey);
+        if (!dep) continue;
+        items.push({ type: 'single', id: dep.id, label: dep.ad_name || dep.ad?.headline || 'Ready ad', count: 1 });
+      }
+    }
+    return items;
+  };
+
+  const removePostedMetaItemsFromView = (items, postedAt = new Date().toISOString()) => {
+    const singleIds = new Set();
+    const flexIds = new Set();
+    const flexChildIds = new Set();
+    ensureArray(items, 'ReadyToPostView.postedMetaItems').forEach((item) => {
+      if (item.type === 'flex') {
+        flexIds.add(item.id);
+        const flexAd = safeFlexAds.find(f => f.id === item.id);
+        if (flexAd) getFlexChildDeps(flexAd).forEach(d => flexChildIds.add(d.id));
+      } else {
+        singleIds.add(item.id);
+      }
+    });
+    removeSelectedReadyCardsFromView({ singleIds, flexIds, flexChildIds, status: 'posted', postedAt });
+  };
+
+  const buildMetaPostOptions = () => ({
+    deliveryMode: postDeliveryMode,
+    adStatus: postDeliveryMode === 'paused' ? 'PAUSED' : 'ACTIVE',
+    scheduleStartTime: postDeliveryMode === 'scheduled' && postScheduleTime
+      ? new Date(postScheduleTime).toISOString()
+      : null,
+    apiRiskAccepted: getPostingPath() === 'api' && apiConfirmText === 'POST VIA API',
+  });
+
+  const formatMetaPostError = (err) => {
+    const parts = [];
+    if (err?.message) parts.push(err.message);
+    if (err?.code) parts.push(`Code: ${err.code}`);
+    if (err?.stage) parts.push(`Stage: ${err.stage}`);
+    if (err?.details) parts.push(`Details: ${err.details}`);
+    return parts.join(' · ') || 'Meta posting failed. The item stayed in Ready to Post.';
+  };
+
+  const handlePostToMetaConfirmed = async () => {
+    const items = ensureArray(postMetaModal?.items, 'ReadyToPostView.postMetaModal.items');
+    if (items.length === 0) {
+      setPostMetaError('Nothing selected to post.');
+      return;
+    }
+    setPostingMeta(true);
+    setPostMetaError('');
+    const options = buildMetaPostOptions();
+    const succeeded = [];
+    try {
+      for (const item of items) {
+        if (item.type === 'flex') {
+          await api.postAdSetToMeta(projectId, item.id, options);
+        } else {
+          await api.postDeploymentToMeta(projectId, item.id, options);
+        }
+        succeeded.push(item);
+      }
+      const postedAt = new Date().toISOString();
+      removePostedMetaItemsFromView(succeeded, postedAt);
+      addToast(`Posted ${items.length} item${items.length !== 1 ? 's' : ''} to Meta`, 'success');
+      setPostMetaModal(null);
+      setPostMetaError('');
+      await Promise.all([loadDeployments(), loadData()]);
+    } catch (err) {
+      if (succeeded.length > 0) {
+        removePostedMetaItemsFromView(succeeded, new Date().toISOString());
+        await Promise.all([loadDeployments(), loadData()]).catch(() => {});
+      }
+      setPostMetaError(formatMetaPostError(err));
+      addToast('Meta posting failed. The item stayed in Ready to Post unless Meta confirmed it first.', 'error');
+    } finally {
+      setPostingMeta(false);
+    }
   };
 
   const copyToClipboard = async (text, label) => {
@@ -413,7 +663,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         ...(dep?.destination_url ? { landing_page_url: dep.destination_url } : {}),
       };
     }));
-    addToast('Marked as posted', 'success');
+    addToast('Marked as posted manually', 'success');
     setConfirmPosted(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -429,7 +679,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         api.updateDeploymentStatus(depId, 'posted'),
       ]);
     } catch {
-      addToast('Failed to save posted status — refreshing...', 'error');
+      addToast('Failed to save manual posted status — refreshing...', 'error');
       loadDeployments();
     }
   };
@@ -455,7 +705,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         ...(flexAd.destination_url ? { landing_page_url: flexAd.destination_url } : {}),
       };
     }));
-    addToast(`${childDeps.length} ads marked as posted`, 'success');
+    addToast(`${childDeps.length} ads marked as posted manually`, 'success');
     setConfirmPosted(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -482,7 +732,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         }).catch(() => { /* best-effort lifecycle sync; deployments status remains source of truth for this view */ }),
       ]);
     } catch {
-      addToast('Failed to save posted status — refreshing...', 'error');
+      addToast('Failed to save manual posted status — refreshing...', 'error');
       loadDeployments();
     }
   };
@@ -1867,6 +2117,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             angleName={resolveAngleName(dep)}
           />
 
+          {dep.meta_post_error && (
+            <div className="mt-3 rounded-lg border border-ed-rust/30 bg-ed-rust/10 px-3 py-2 text-[11px] text-ed-rust">
+              Meta posting issue: {dep.meta_post_error}
+            </div>
+          )}
+
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection
             campaignName={campaignName}
@@ -1980,22 +2236,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </button>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isPoster && (
+              <button
+                type="button"
+                onClick={() => openPostToMetaModal([{ type: 'single', id: dep.id, label: name || 'Ready ad', count: 1 }])}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-ed-accent hover:bg-ed-accent/90 transition-colors shadow-sm"
+              >
+                Post to Meta
+              </button>
+            )}
             {confirmPosted === dep.id ? (
               <div className="flex items-center gap-2">
                 <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-ed-ink2 hover:bg-white transition-colors">Cancel</button>
                 <button onClick={() => handleMarkPosted(dep.id)} disabled={isMarking}
                   className="px-4 py-2 rounded-lg text-[12px] font-bold bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
-                >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
+                >{isMarking ? 'Updating...' : 'Confirm Manual Post'}</button>
               </div>
             ) : (
               <button onClick={() => setConfirmPosted(dep.id)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-ed-green hover:bg-ed-green/90 transition-colors shadow-sm"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-ed-green bg-ed-green/10 hover:bg-ed-green/15 border border-ed-green/30 transition-colors shadow-sm"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Mark as Posted
+                Mark as Posted Manually
               </button>
             )}
           </div>
@@ -2022,6 +2287,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isDownloadingSelected = downloadingSelected.has(cardKey);
     const isExpanded = expandedCards.has(flexId);
     const placementEditKey = sectionEditKey(flexId, 'placement');
+    const childPostErrors = childDeps.map(d => d.meta_post_error).filter(Boolean);
 
     return (
       <div
@@ -2073,6 +2339,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             fallbackName={flexAd.name || ''}
             angleName={resolveAngleName(flexAd, childDeps)}
           />
+
+          {childPostErrors.length > 0 && (
+            <div className="mt-3 rounded-lg border border-ed-rust/30 bg-ed-rust/10 px-3 py-2 text-[11px] text-ed-rust">
+              Meta posting issue: {childPostErrors[0]}
+            </div>
+          )}
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection
@@ -2267,7 +2539,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </button>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {!isPoster && (
+              <button
+                type="button"
+                onClick={() => openPostToMetaModal([{ type: 'flex', id: flexAd.id, label: flexAd.name || 'Ready ad set', count: childDeps.length }])}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-ed-accent hover:bg-ed-accent/90 transition-colors shadow-sm"
+              >
+                Post to Meta
+              </button>
+            )}
             {confirmPosted === flexId ? (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-ed-ink2">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
@@ -2278,12 +2559,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </div>
             ) : (
               <button onClick={() => setConfirmPosted(flexId)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-ed-green hover:bg-ed-green/90 transition-colors shadow-sm"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-ed-green bg-ed-green/10 hover:bg-ed-green/15 border border-ed-green/30 transition-colors shadow-sm"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Mark as Posted
+                Mark as Posted Manually
               </button>
             )}
           </div>
@@ -2425,9 +2706,27 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>
       )}
 
-      {!isPoster && selectedCards.size > 0 && !bulkDeleteConfirm && typeof document !== 'undefined' && createPortal(
+      {!isPoster && selectedCards.size > 0 && !bulkDeleteConfirm && !postMetaModal && typeof document !== 'undefined' && createPortal(
         <div className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-fit sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 bottom-4 z-[70] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-ed-accent/20 bg-ed-surface/95 px-3 py-2 shadow-lg shadow-ed-ink/10 backdrop-blur pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <span className="text-[11px] text-ed-accent font-semibold mr-1">{selectedCards.size} selected</span>
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              const items = selectedItemsForMetaPost();
+              if (items.length === 0) {
+                addToast('Selected ads are no longer available. Refreshing...', 'error');
+                loadDeployments();
+                return;
+              }
+              openPostToMetaModal(items);
+            }}
+            disabled={postingMeta}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+          >
+            Post to Meta ({selectedCards.size})
+          </button>
           <button
             type="button"
             onMouseDown={(e) => e.stopPropagation()}
@@ -2456,10 +2755,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   status: 'posted',
                   postedAt,
                 });
-                addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
+                addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted manually`, 'success');
                 loadDeployments();
               } catch {
-                addToast('Failed to mark as posted', 'error');
+                addToast('Failed to mark as posted manually', 'error');
               } finally {
                 setBulkMarking(false);
               }
@@ -2467,7 +2766,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             disabled={bulkMarking}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
           >
-            {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
+            {bulkMarking ? 'Marking...' : `Mark as Posted Manually (${selectedCards.size})`}
           </button>
           <button
             type="button"
@@ -2587,6 +2886,24 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>,
         document.body
       )}
+
+      <PostToMetaModal
+        open={!!postMetaModal}
+        items={postMetaModal?.items || []}
+        postingPath={getPostingPath()}
+        deliveryMode={postDeliveryMode}
+        setDeliveryMode={setPostDeliveryMode}
+        scheduleTime={postScheduleTime}
+        setScheduleTime={setPostScheduleTime}
+        riskAccepted={postRiskAccepted}
+        setRiskAccepted={setPostRiskAccepted}
+        apiConfirmText={apiConfirmText}
+        setApiConfirmText={setApiConfirmText}
+        error={postMetaError}
+        busy={postingMeta}
+        onClose={closePostToMetaModal}
+        onConfirm={handlePostToMetaConfirmed}
+      />
 
       {/* Phase 6.20a — Mark as Posted backdate modal. Opens when user clicks
           "Pick date…" on a flex/ad_set; on save, calls handleMarkFlexPosted

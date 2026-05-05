@@ -22,6 +22,7 @@ async function throwForResponseError(res) {
   error.action = err.action;
   error.settings_path = err.settings_path;
   error.settings_subtab = err.settings_subtab;
+  error.stage = err.stage;
   throw error;
 }
 
@@ -484,8 +485,12 @@ export const api = {
     request(`/meta/pages?projectId=${projectId}`).then(d => d?.pages ?? []),
   selectMetaPage: (projectId, payload) =>
     request('/meta/select-page', { method: 'POST', body: JSON.stringify({ projectId, ...payload }) }),
-  postAdSetToMeta: (projectId, adSetId) =>
-    request(`/projects/${projectId}/staging/adsets/${adSetId}/post-to-meta`, { method: 'POST' }),
+  postAdSetToMeta: (projectId, adSetId, options = {}) =>
+    request(`/projects/${projectId}/ad-sets/${adSetId}/post-to-meta`, { method: 'POST', body: JSON.stringify(options) })
+      .then(r => { invalidateDeploymentCache(projectId); return r; }),
+  postDeploymentToMeta: (projectId, deploymentId, options = {}) =>
+    request(`/deployments/${deploymentId}/post-to-meta`, { method: 'POST', body: JSON.stringify({ projectId, ...options }) })
+      .then(r => { invalidateDeploymentCache(projectId); return r; }),
 
   // Phase 1 — Staging Page
   getStagingPending: (projectId) =>

@@ -137,6 +137,8 @@ export const update = mutation({
       facebook_page: v.optional(v.string()),
       posted_by: v.optional(v.string()),
       duplicate_adset_name: v.optional(v.string()),
+      meta_ad_id: v.optional(v.string()),
+      meta_post_error: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
