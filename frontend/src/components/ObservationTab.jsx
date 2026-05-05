@@ -541,9 +541,9 @@ export default function ObservationTab({ projectId, project }) {
 
   return (
     <div className="space-y-5">
-      <div className="max-w-7xl mx-auto space-y-5">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-5">
       {/* Editorial page header */}
-      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-1">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
         <EditorialPageHeader
           eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · OBSERVATION`}
           title="Observation"
@@ -980,7 +980,7 @@ export default function ObservationTab({ projectId, project }) {
       </div>
 
       {archived.length > 0 && (
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="ed-card p-5">
           <h3 className="text-[18px] font-serif text-ed-ink2 mb-3">Archived angles ({archived.length})</h3>
           <div className="space-y-2">
