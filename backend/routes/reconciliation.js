@@ -81,9 +81,12 @@ async function mcpReadArgs(project, opts, projectId) {
 function sendReconciliationError(res, err) {
   if (err instanceof MCPReadUnavailableError || err instanceof MCPNotAuthorizedError || err.code === 'MCP_READ_UNAVAILABLE' || err.code === 'MCP_NOT_AUTHORIZED') {
     return res.status(err.status || 424).json({
-      error: 'Meta MCP reads are not available for this account/app. Switch Read Path to API or request MCP read access.',
+      error: 'Meta MCP is connected, but this ad account does not expose the read tools Observation needs. Go to Project Settings → Meta and switch Analytics & Observation Read Path to API.',
       code: err.code || 'MCP_READ_UNAVAILABLE',
       details: err.message,
+      action: 'SWITCH_READ_PATH_TO_API',
+      settings_path: 'overview',
+      settings_subtab: 'meta',
     });
   }
   return res.status(500).json({ error: err.message });

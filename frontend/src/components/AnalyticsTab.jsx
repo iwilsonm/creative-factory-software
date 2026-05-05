@@ -300,6 +300,7 @@ export default function AnalyticsTab({ projectId, project }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [errorMeta, setErrorMeta] = useState(null);
   const [tokenExpired, setTokenExpired] = useState(false);
 
   const [tags, setTags] = useState([]);
@@ -345,6 +346,7 @@ export default function AnalyticsTab({ projectId, project }) {
     const isCurrentRequest = () => requestSeqRef.current === requestSeq;
     setLoading(true);
     setError(null);
+    setErrorMeta(null);
     setTokenExpired(false);
     if (clearRows) setRows([]);
     try {
@@ -383,6 +385,7 @@ export default function AnalyticsTab({ projectId, project }) {
       if (/token/i.test(err.message) && /expired|reconnect/i.test(err.message)) {
         setTokenExpired(true);
       }
+      setErrorMeta({ code: err.code, action: err.action });
       setError(err.message);
     } finally {
       if (isCurrentRequest()) setLoading(false);
@@ -917,7 +920,38 @@ export default function AnalyticsTab({ projectId, project }) {
       )}
       {error && !tokenExpired && (
         <div className="ed-card p-4 border-ed-rust/30 bg-ed-rust/5 text-[12px] text-ed-rust mb-4">
-          {error}
+          <div className="font-semibold mb-1">
+            {errorMeta?.code === 'MCP_READ_UNAVAILABLE' || errorMeta?.code === 'MCP_NOT_AUTHORIZED'
+              ? 'Analytics cannot read through MCP on this account'
+              : 'Analytics could not load'}
+          </div>
+          <p>{error}</p>
+          {(errorMeta?.action === 'SWITCH_READ_PATH_TO_API' || errorMeta?.code === 'MCP_READ_UNAVAILABLE' || errorMeta?.code === 'MCP_NOT_AUTHORIZED') && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await api.setMetaReadPath(projectId, 'api');
+                    toast.success('Analytics & Observation now use API reads');
+                    await loadData({ clearRows: true });
+                  } catch (err) {
+                    toast.error(err.message || 'Could not switch read path');
+                  }
+                }}
+                className="px-3 py-1.5 rounded-[7px] bg-ed-accent text-[#fbfaf6] text-[12px]"
+              >
+                Use API Reads
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = `/projects/${projectId}?tab=overview&subtab=meta`; }}
+                className="px-3 py-1.5 rounded-[7px] border border-ed-line bg-cream text-ed-ink text-[12px]"
+              >
+                Go to Meta Settings
+              </button>
+            </div>
+          )}
         </div>
       )}
 

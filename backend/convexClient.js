@@ -289,6 +289,8 @@ export async function upsertMetaMcpDiagnostic(entry) {
     read_access: entry.read_access,
     posting_access: entry.posting_access,
     reason_code: entry.reason_code,
+    ...(entry.read_reason_code !== undefined ? { read_reason_code: entry.read_reason_code } : {}),
+    ...(entry.posting_reason_code !== undefined ? { posting_reason_code: entry.posting_reason_code } : {}),
     user_message: entry.user_message,
     ...(entry.technical_details !== undefined ? { technical_details: entry.technical_details } : {}),
     checked_at: entry.checked_at,

@@ -96,9 +96,12 @@ function sendMetaReadError(res, err) {
   if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
   if (err instanceof MCPReadUnavailableError || err instanceof MCPNotAuthorizedError || err.code === 'MCP_READ_UNAVAILABLE' || err.code === 'MCP_NOT_AUTHORIZED') {
     return res.status(err.status || 424).json({
-      error: 'Meta MCP reads are not available for this account/app. Switch Read Path to API or request MCP read access.',
+      error: 'Meta MCP is connected, but this ad account does not expose the read tools Analytics and Observation need. Go to Project Settings → Meta and switch Analytics & Observation Read Path to API.',
       code: err.code || 'MCP_READ_UNAVAILABLE',
       details: err.message,
+      action: 'SWITCH_READ_PATH_TO_API',
+      settings_path: 'overview',
+      settings_subtab: 'meta',
     });
   }
   return res.status(500).json({ error: err.message });
@@ -111,6 +114,8 @@ function sanitizeDiagnostic(row) {
     read_access: row.read_access,
     posting_access: row.posting_access,
     reason_code: row.reason_code,
+    read_reason_code: row.read_reason_code || row.reason_code,
+    posting_reason_code: row.posting_reason_code || row.reason_code,
     user_message: row.user_message,
     technical_details: row.technical_details || '',
     checked_at: row.checked_at,
@@ -124,6 +129,8 @@ function diagnosticResult({
   readAccess,
   postingAccess,
   reasonCode,
+  readReasonCode,
+  postingReasonCode,
   userMessage,
   technicalDetails = '',
 }) {
@@ -134,6 +141,8 @@ function diagnosticResult({
     read_access: readAccess,
     posting_access: postingAccess,
     reason_code: reasonCode,
+    read_reason_code: readReasonCode || reasonCode,
+    posting_reason_code: postingReasonCode || reasonCode,
     user_message: userMessage,
     technical_details: technicalDetails,
     checked_at: new Date().toISOString(),
@@ -161,6 +170,8 @@ async function runMcpAccessDiagnostic(projectId) {
       readAccess: 'not_available',
       postingAccess: 'not_available',
       reasonCode: 'NO_META_CONNECTION',
+      readReasonCode: 'NO_META_CONNECTION',
+      postingReasonCode: 'NO_META_CONNECTION',
       userMessage: 'Connect Meta before checking MCP access.',
     });
   }
@@ -172,19 +183,10 @@ async function runMcpAccessDiagnostic(projectId) {
       readAccess: 'not_available',
       postingAccess: 'not_available',
       reasonCode: 'NO_AD_ACCOUNT',
+      readReasonCode: 'NO_AD_ACCOUNT',
+      postingReasonCode: 'NO_AD_ACCOUNT',
       userMessage: 'Select the Meta ad account this project should use before checking MCP access.',
     });
-  }
-
-  if (project.meta_integration_path === 'mcp' && !project.meta_page_id) {
-    return await persistDiagnostic(diagnosticResult({
-      project,
-      status: 'setup_issue',
-      readAccess: 'not_checked',
-      postingAccess: 'not_available',
-      reasonCode: 'NO_PAGE',
-      userMessage: 'Select a Facebook Page before checking MCP posting access.',
-    }));
   }
 
   const anthropicApiKey = await getSetting('anthropic_api_key');
@@ -195,9 +197,14 @@ async function runMcpAccessDiagnostic(projectId) {
       readAccess: 'not_available',
       postingAccess: project.meta_page_id ? 'not_available' : 'not_checked',
       reasonCode: 'NO_ANTHROPIC_KEY',
+      readReasonCode: 'NO_ANTHROPIC_KEY',
+      postingReasonCode: project.meta_page_id ? 'NO_ANTHROPIC_KEY' : 'NO_PAGE',
       userMessage: 'Add an Anthropic API key in global Settings before using Meta MCP.',
     }));
   }
+
+  const postingAccess = project.meta_page_id ? 'configuration_ready' : 'needs_setup';
+  const postingReasonCode = project.meta_page_id ? 'MCP_POSTING_CONFIGURATION_READY' : 'NO_PAGE';
 
   try {
     await checkMetaMcpReadAccess({
@@ -211,11 +218,13 @@ async function runMcpAccessDiagnostic(projectId) {
       project,
       status: 'available',
       readAccess: 'available',
-      postingAccess: project.meta_page_id ? 'available' : 'not_checked',
+      postingAccess,
       reasonCode: 'MCP_AVAILABLE',
+      readReasonCode: 'MCP_READ_AVAILABLE',
+      postingReasonCode,
       userMessage: project.meta_page_id
-        ? 'Meta MCP access appears available for this selected ad account.'
-        : 'Meta MCP read access appears available. Select a Facebook Page before posting through MCP.',
+        ? 'Meta MCP reads are available. Posting is configured to use MCP and is ready to try from Ready to Post.'
+        : 'Meta MCP read access is available. Select a Facebook Page before posting through MCP.',
     }));
   } catch (err) {
     if (isTokenInvalidError(err)) {
@@ -225,6 +234,8 @@ async function runMcpAccessDiagnostic(projectId) {
         readAccess: 'not_available',
         postingAccess: 'not_available',
         reasonCode: 'TOKEN_EXPIRED',
+        readReasonCode: 'TOKEN_EXPIRED',
+        postingReasonCode: 'TOKEN_EXPIRED',
         userMessage: 'The Meta token expired or was revoked. Reconnect Meta, then check MCP access again.',
         technicalDetails: err.message,
       }));
@@ -236,6 +247,8 @@ async function runMcpAccessDiagnostic(projectId) {
         readAccess: 'not_available',
         postingAccess: 'not_available',
         reasonCode: 'META_MCP_NOT_ENABLED',
+        readReasonCode: 'META_MCP_NOT_ENABLED',
+        postingReasonCode: 'META_MCP_NOT_ENABLED',
         userMessage: 'Meta did not authorize MCP for this selected ad account/app. API reads can still work, but MCP is not available for this account right now.',
         technicalDetails: err.message,
       }));
@@ -243,11 +256,15 @@ async function runMcpAccessDiagnostic(projectId) {
     if (err instanceof MCPReadUnavailableError || err.code === 'MCP_READ_UNAVAILABLE') {
       return await persistDiagnostic(diagnosticResult({
         project,
-        status: 'not_available',
+        status: postingAccess === 'configuration_ready' ? 'partial' : 'not_available',
         readAccess: 'not_available',
-        postingAccess: 'not_checked',
+        postingAccess,
         reasonCode: 'MCP_READ_UNAVAILABLE',
-        userMessage: 'Meta MCP connected, but the read tools needed by Analytics/Observation are not available for this account/app.',
+        readReasonCode: 'MCP_READ_UNAVAILABLE',
+        postingReasonCode,
+        userMessage: project.meta_page_id
+          ? 'Meta MCP connected, but the read tools needed by Analytics/Observation are not available for this account/app. API reads can still work, and MCP posting is configured.'
+          : 'Meta MCP connected, but the read tools needed by Analytics/Observation are not available for this account/app. Select a Facebook Page before posting through MCP.',
         technicalDetails: err.message,
       }));
     }
@@ -255,9 +272,11 @@ async function runMcpAccessDiagnostic(projectId) {
       project,
       status: 'unknown',
       readAccess: 'not_checked',
-      postingAccess: 'not_checked',
+      postingAccess,
       reasonCode: 'UNKNOWN_MCP_ERROR',
-      userMessage: 'The MCP access check hit an unexpected connector error. Try again, or use API reads while access is being confirmed.',
+      readReasonCode: 'UNKNOWN_MCP_ERROR',
+      postingReasonCode,
+      userMessage: 'The MCP read check hit an unexpected connector error. Try again, or use API reads while access is being confirmed.',
       technicalDetails: err.message,
     }));
   }

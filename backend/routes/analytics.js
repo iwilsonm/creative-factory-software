@@ -121,9 +121,12 @@ function sendAnalyticsError(res, err) {
   if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
   if (err instanceof MCPReadUnavailableError || err instanceof MCPNotAuthorizedError || err.code === 'MCP_READ_UNAVAILABLE' || err.code === 'MCP_NOT_AUTHORIZED') {
     return res.status(err.status || 424).json({
-      error: 'Meta MCP reads are not available for this account/app. Switch Read Path to API or request MCP read access.',
+      error: 'Meta MCP is connected, but this ad account does not expose the read tools Analytics needs. Go to Project Settings → Meta and switch Analytics & Observation Read Path to API.',
       code: err.code || 'MCP_READ_UNAVAILABLE',
       details: err.message,
+      action: 'SWITCH_READ_PATH_TO_API',
+      settings_path: 'overview',
+      settings_subtab: 'meta',
     });
   }
   if (err.status === 400) return res.status(400).json({ error: err.message });

@@ -71,6 +71,7 @@ export default function ObservationTab({ projectId, project }) {
   const [unlinkedAdSets, setUnlinkedAdSets] = useState([]);
   const [archivedUnlinkedAdSets, setArchivedUnlinkedAdSets] = useState([]);
   const [unlinkedLoading, setUnlinkedLoading] = useState(false);
+  const [unlinkedError, setUnlinkedError] = useState(null);
   const [showUnlinked, setShowUnlinked] = useState(true);
   const [showArchivedUnlinked, setShowArchivedUnlinked] = useState(false);
   const [selectedUnlinkedIds, setSelectedUnlinkedIds] = useState([]);
@@ -172,6 +173,7 @@ export default function ObservationTab({ projectId, project }) {
   // Phase 9 — Load unlinked Meta ad sets
   const loadUnlinked = useCallback(async () => {
     setUnlinkedLoading(true);
+    setUnlinkedError(null);
     try {
       const [activeResult, archivedResult] = await Promise.allSettled([
         api.getUnlinkedAdSets(projectId),
@@ -181,6 +183,7 @@ export default function ObservationTab({ projectId, project }) {
         setUnlinkedAdSets(activeResult.value.unlinked || []);
       } else {
         setUnlinkedAdSets([]);
+        setUnlinkedError(activeResult.reason);
       }
       if (archivedResult.status === 'fulfilled') {
         setArchivedUnlinkedAdSets(archivedResult.value.archived || []);
@@ -594,18 +597,54 @@ export default function ObservationTab({ projectId, project }) {
           </button>
           {showUnlinked && (
             <div className="px-5 pb-4 space-y-3">
-              <p className="text-[11px] text-ed-ink3 mb-3">
-                These Meta ad sets are not linked to Creative Factory. Link them to start observation, or archive rows you do not want to track.
-              </p>
+      <p className="text-[11px] text-ed-ink3 mb-3">
+        These Meta ad sets are not linked to Creative Factory. Link them to start observation, or archive rows you do not want to track.
+      </p>
+              {unlinkedError && (
+                <div className="p-4 rounded-lg bg-ed-rust/5 border border-ed-rust/30 text-[12px] text-ed-rust">
+                  <div className="font-semibold mb-1">
+                    {unlinkedError.code === 'MCP_READ_UNAVAILABLE' || unlinkedError.code === 'MCP_NOT_AUTHORIZED'
+                      ? 'Observation cannot read unobserved Meta ad sets through MCP'
+                      : 'Unobserved ads could not load'}
+                  </div>
+                  <p>{unlinkedError.message}</p>
+                  {(unlinkedError.action === 'SWITCH_READ_PATH_TO_API' || unlinkedError.code === 'MCP_READ_UNAVAILABLE' || unlinkedError.code === 'MCP_NOT_AUTHORIZED') && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await api.setMetaReadPath(projectId, 'api');
+                            toast.success('Analytics & Observation now use API reads');
+                            await loadUnlinked();
+                          } catch (err) {
+                            toast.error(err.message || 'Could not switch read path');
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-[7px] bg-ed-accent text-[#fbfaf6] text-[12px]"
+                      >
+                        Use API Reads
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { window.location.href = `/projects/${projectId}?tab=overview&subtab=meta`; }}
+                        className="px-3 py-1.5 rounded-[7px] border border-ed-line bg-cream text-ed-ink text-[12px]"
+                      >
+                        Go to Meta Settings
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               {unlinkedLoading && unlinkedAdSets.length === 0 ? (
                 <div className="p-4 rounded-lg bg-ed-surface border border-ed-line text-[12px] text-ed-ink3 text-center">
                   Loading unobserved Meta ad sets...
                 </div>
-              ) : unlinkedAdSets.length === 0 ? (
+              ) : !unlinkedError && unlinkedAdSets.length === 0 ? (
                 <div className="p-4 rounded-lg bg-ed-surface border border-ed-line text-[12px] text-ed-ink3 text-center">
                   No active unobserved Meta ad sets.
                 </div>
-              ) : (
+              ) : unlinkedAdSets.length > 0 ? (
                 <>
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ed-line bg-ed-bg/70 px-3 py-2">
                     <label className="inline-flex items-center gap-2 text-[12px] text-ed-ink2">
@@ -658,7 +697,7 @@ export default function ObservationTab({ projectId, project }) {
                     </div>
                   ))}
                 </>
-              )}
+              ) : null}
 
               <div className="pt-2 border-t border-ed-line/70">
                 <button

@@ -25,6 +25,8 @@ export const upsert = mutation({
     read_access: v.string(),
     posting_access: v.string(),
     reason_code: v.string(),
+    read_reason_code: v.optional(v.string()),
+    posting_reason_code: v.optional(v.string()),
     user_message: v.string(),
     technical_details: v.optional(v.string()),
     checked_at: v.string(),

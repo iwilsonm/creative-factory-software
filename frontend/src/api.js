@@ -15,7 +15,14 @@ async function throwForResponseError(res) {
   } catch {
     err = { error: `HTTP ${res.status}` };
   }
-  throw new Error(err.error || `Request failed with ${res.status}`);
+  const error = new Error(err.error || `Request failed with ${res.status}`);
+  error.status = res.status;
+  error.code = err.code;
+  error.details = err.details;
+  error.action = err.action;
+  error.settings_path = err.settings_path;
+  error.settings_subtab = err.settings_subtab;
+  throw error;
 }
 
 async function request(path, options = {}) {
