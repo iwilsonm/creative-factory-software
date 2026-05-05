@@ -23,7 +23,9 @@ export default function ProjectSetup() {
   // URL fetch state
   const [urlInput, setUrlInput] = useState('');
   const [urlFetching, setUrlFetching] = useState(false);
-  const [fetchedMeta, setFetchedMeta] = useState(null); // { title, host, sparse, truncated }
+  const [urlFetchStatus, setUrlFetchStatus] = useState('');
+  const [urlFetchError, setUrlFetchError] = useState(null);
+  const [fetchedMeta, setFetchedMeta] = useState(null); // { title, host, sparse, truncated, extraction_method }
 
   // Auto-describe state
   const [describing, setDescribing] = useState(false);
@@ -65,21 +67,54 @@ export default function ProjectSetup() {
     const url = urlInput.trim();
     if (!url || urlFetching) return;
     setUrlFetching(true);
+    setUrlFetchStatus('Fetching page...');
+    setUrlFetchError(null);
     setFetchedMeta(null);
+    setError('');
+    const renderTimer = window.setTimeout(() => {
+      setUrlFetchStatus('Rendering JavaScript page if needed...');
+    }, 1800);
     try {
-      const { sales_page_content, title, sparse, truncated } = await api.fetchSalesPageFromUrl(url);
+      const {
+        sales_page_content,
+        title,
+        sparse,
+        truncated,
+        extraction_method,
+        attempted_methods,
+      } = await api.fetchSalesPageFromUrl(url);
       setForm(prev => ({ ...prev, sales_page_content }));
       let host = '';
       try { host = new URL(url).hostname; } catch { host = url; }
-      setFetchedMeta({ title, host, sparse, truncated });
+      setFetchedMeta({ title, host, sparse, truncated, extraction_method, attempted_methods });
       // Explicitly trigger auto-describe (don't rely on blur event).
       autoDescribe(sales_page_content);
     } catch (err) {
-      setError(err.message || 'Failed to fetch URL');
+      setUrlFetchError({
+        message: err.message || 'Failed to fetch URL',
+        reasonCode: err.reason_code,
+        attemptedMethods: err.attempted_methods || [],
+        manualRecoverySteps: err.manual_recovery_steps || [
+          'Open the sales page in your browser.',
+          'Press Cmd+P on Mac or Ctrl+P on Windows.',
+          'Choose Save as PDF.',
+          'Upload that PDF here using the Upload option.',
+          'Or copy the page text and use Paste instead.',
+        ],
+      });
     } finally {
+      window.clearTimeout(renderTimer);
       setUrlFetching(false);
+      setUrlFetchStatus('');
     }
   };
+
+  const formatFetchMethod = (method) => ({
+    static_fetch: 'Normal page fetch',
+    browser_render: 'Browser-rendered fetch',
+    file_parse: 'File/PDF parser',
+    text_parse: 'Text parser',
+  }[method] || method);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -242,7 +277,10 @@ export default function ProjectSetup() {
                   <input
                     type="url"
                     value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
+                    onChange={(e) => {
+                      setUrlInput(e.target.value);
+                      setUrlFetchError(null);
+                    }}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchUrl(); } }}
                     className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
                     placeholder="https://example.com/product"
@@ -254,18 +292,59 @@ export default function ProjectSetup() {
                     disabled={urlFetching || !urlInput.trim()}
                     className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors whitespace-nowrap"
                   >
-                    {urlFetching ? 'Fetching...' : 'Fetch'}
+                    {urlFetching ? (urlFetchStatus.includes('Rendering') ? 'Rendering...' : 'Fetching...') : 'Fetch'}
                   </button>
                 </div>
                 <p className="text-[11px] text-ed-ink3 mt-1">
-                  We'll fetch the page and extract the main text. JS-rendered sales pages (SPAs) may return little content — switch to Paste if needed.
+                  We'll fetch the page, render JavaScript pages when needed, and extract the main sales text.
                 </p>
+                {urlFetching && (
+                  <p className="text-[12px] text-ed-accent mt-2 animate-pulse">
+                    {urlFetchStatus || 'Fetching page...'}
+                  </p>
+                )}
+                {urlFetchError && (
+                  <div className="mt-3 rounded-xl border border-ed-rust/30 bg-ed-rust/10 p-4 text-[13px] text-ed-ink2">
+                    <p className="font-medium text-ed-rust mb-1">We could not read this URL automatically.</p>
+                    <p className="text-ed-ink2">{urlFetchError.message}</p>
+                    {urlFetchError.attemptedMethods?.length > 0 && (
+                      <p className="text-[12px] text-ed-ink3 mt-2">
+                        Tried: {urlFetchError.attemptedMethods.map(formatFetchMethod).join(', ')}.
+                      </p>
+                    )}
+                    <div className="mt-3">
+                      <p className="text-[12px] font-medium text-ed-ink2 mb-1">To continue, save the page as a PDF and upload it:</p>
+                      <ol className="list-decimal list-inside space-y-0.5 text-[12px] text-ed-ink3">
+                        {urlFetchError.manualRecoverySteps.map((step, index) => (
+                          <li key={`${step}-${index}`}>{step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSalesInputMode('upload')}
+                        className="px-3 py-1.5 rounded-[7px] text-[12px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors"
+                      >
+                        Upload PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSalesInputMode('paste')}
+                        className="px-3 py-1.5 rounded-[7px] text-[12px] border border-ed-line text-ed-ink2 hover:bg-ed-bg transition-colors"
+                      >
+                        Paste text
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {fetchedMeta && form.sales_page_content && (
                   <div className="mt-3 bg-ed-bg border border-black/5 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-[12px] text-ed-ink3">
                         Fetched from <span className="text-ed-ink2">{fetchedMeta.host}</span>
                         {fetchedMeta.title ? ` — "${fetchedMeta.title}"` : ''}
+                        {fetchedMeta.extraction_method === 'browser_render' ? ' using browser rendering' : ''}
                       </span>
                       <button
                         type="button"
@@ -277,7 +356,7 @@ export default function ProjectSetup() {
                     </div>
                     {fetchedMeta.sparse && (
                       <p className="text-[11px] text-ed-rust mb-1.5">
-                        Page had little readable text — likely JS-rendered. Try pasting the content manually.
+                        Page had little readable text. Review it before creating the project.
                       </p>
                     )}
                     {fetchedMeta.truncated && (

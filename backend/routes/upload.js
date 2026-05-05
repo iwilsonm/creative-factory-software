@@ -172,10 +172,27 @@ router.post('/fetch-url', async (req, res) => {
       title: result.title,
       truncated: result.truncated,
       sparse: result.sparse,
+      extraction_method: result.extraction_method,
+      attempted_methods: result.attempted_methods || [],
     });
   } catch (err) {
-    console.warn(`[fetch-url] ${safeUrlForLogs(url)}: ${err.message}`);
-    res.status(400).json({ error: err.message || 'Failed to fetch URL' });
+    console.warn(
+      `[fetch-url] ${safeUrlForLogs(url)}: ${err.reason_code || 'unknown'}: ${err.message}`,
+      err.details ? `(${err.details})` : ''
+    );
+    res.status(err.status || 400).json({
+      error: err.user_message || err.message || 'Failed to fetch URL',
+      reason_code: err.reason_code || 'unknown',
+      attempted_methods: err.attempted_methods || [],
+      manual_recovery_steps: err.manual_recovery_steps || [
+        'Open the sales page in your browser.',
+        'Press Cmd+P on Mac or Ctrl+P on Windows.',
+        'Choose Save as PDF.',
+        'Upload that PDF here using the Upload option.',
+        'Or copy the page text and use Paste instead.',
+      ],
+      details: err.details || undefined,
+    });
   }
 });
 

@@ -23,6 +23,9 @@ async function throwForResponseError(res) {
   error.settings_path = err.settings_path;
   error.settings_subtab = err.settings_subtab;
   error.stage = err.stage;
+  error.reason_code = err.reason_code;
+  error.attempted_methods = err.attempted_methods;
+  error.manual_recovery_steps = err.manual_recovery_steps;
   throw error;
 }
 

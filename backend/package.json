@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@google/genai": "^1.40.0",
+    "@sparticuz/chromium": "^148.0.0",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^12.6.2",
     "cheerio": "1.0.0-rc.12",
@@ -28,6 +29,7 @@
     "node-fetch": "^3.3.2",
     "openai": "^6.19.0",
     "pdf-parse": "^1.1.1",
+    "playwright-core": "^1.59.1",
     "sharp": "^0.34.5",
     "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
@@ -36,6 +38,10 @@
     "vitest": "^4.0.18"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["bcrypt", "better-sqlite3", "sharp"]
+    "onlyBuiltDependencies": [
+      "bcrypt",
+      "better-sqlite3",
+      "sharp"
+    ]
   }
 }
