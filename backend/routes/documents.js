@@ -103,13 +103,11 @@ router.get('/:projectId/research-prompts', async (req, res) => {
       {
         step: 1,
         title: 'Step 1: Analyze Your Sales Page',
-        instruction: 'Start a new conversation in ChatGPT or Claude. Create a PDF of your current PDP (product detail page) and attach it to your message along with this prompt. Then copy and paste the prompt below.',
+        instruction: 'Start a new conversation in ChatGPT or Claude. Attach a PDF of your current PDP or sales page along with this prompt. To create the PDF, open the page in your browser, press Cmd+P on Mac or Ctrl+P on Windows, choose Save as PDF, then attach that file.',
         tip: {
-          text: 'Tip: You can use this tool to convert your PDP into a PDF (current suggestion, may change):',
-          linkLabel: 'webtopdf.com',
-          linkUrl: 'https://webtopdf.com/'
+          text: 'Recommended: use your browser\'s Print -> Save as PDF. If that does not capture the page well, you can search for a free web page to PDF converter and use it only for public, non-sensitive pages. For private pages, use browser Save as PDF or copy/paste the page text manually.'
         },
-        alert: 'You need to attach a PDF of your PDP (product detail page) to the ChatGPT or Claude message along with this prompt. Without it, the AI has nothing to analyze.',
+        alert: 'You need to attach a PDF of your PDP or sales page to the ChatGPT or Claude message along with this prompt. Without it, the AI has nothing visual or page-specific to analyze.',
         prompt: prompt1_AnalyzeSalesPage(
           project.product_description,
           project.sales_page_content
@@ -124,8 +122,14 @@ router.get('/:projectId/research-prompts', async (req, res) => {
       {
         step: 3,
         title: 'Step 3: Generate Your Research Prompt',
-        instruction: 'After getting the response from Step 2, send this final prompt in the SAME conversation. The AI will produce a detailed, specific research prompt for your product. Copy that output and use it to conduct deep research — either paste it into a new ChatGPT Deep Research session, or research the topics manually.',
+        instruction: 'After getting the response from Step 2, send this third prompt in the SAME conversation. This does not complete the research; it creates the detailed prompt you will use in Step 4.',
         prompt: prompt3_GenerateResearchPrompt(project.name)
+      },
+      {
+        step: 4,
+        title: 'Step 4: Run Deep Research',
+        mode: 'instruction',
+        instruction: 'Take the research prompt generated in Step 3, open ChatGPT in your web browser, turn on Deep Research, paste the prompt, and run it. When Deep Research finishes, copy the full research output and return here to upload or paste it.'
       }
     ];
 

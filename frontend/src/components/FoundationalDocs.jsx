@@ -889,7 +889,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-serif font-[420] text-ed-ink">Manual Research Guide</h3>
-            <p className="text-sm text-ed-ink2">Step 1 of 2: Copy these prompts into ChatGPT or Claude</p>
+            <p className="text-sm text-ed-ink2">Step 1 of 2: Complete the 4-step manual research guide</p>
           </div>
           <button onClick={handleBackToChoice} className="text-sm text-ed-ink2 hover:text-ed-ink">
             ← Back
@@ -898,11 +898,11 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
         <div className="bg-ed-accent/5 border border-ed-accent/15 rounded-lg p-4">
           <p className="text-sm text-ed-accent">
-            <strong>How this works:</strong> Open ChatGPT (GPT-4 recommended) or Claude in a new tab.
-            Send these 3 prompts <strong>in sequence, in the same conversation</strong>.
-            After prompt 3, the AI will generate a detailed research prompt specific to your product.
-            Use that output to run Deep Research (paste it into a ChatGPT Deep Research session),
-            then come back here to upload your research.
+            <strong>How this works:</strong> Open ChatGPT or Claude in a new tab.
+            Send Steps 1-3 <strong>in sequence, in the same conversation</strong>.
+            Step 3 will generate a detailed research prompt specific to your product.
+            For Step 4, open web-based ChatGPT, turn on Deep Research, paste the generated prompt,
+            then come back here to upload or paste the completed research.
           </p>
         </div>
 
@@ -928,21 +928,29 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
             {expandedPrompt === index && (
               <div className="p-4 border-t border-ed-line">
-                <div className="flex justify-end mb-2">
-                  <button
-                    onClick={() => handleCopyPrompt(index, p.prompt)}
-                    className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
-                      copiedPrompt === index
-                        ? 'bg-ed-green/10 text-ed-green'
-                        : 'bg-ed-accent/10 text-ed-accent hover:bg-ed-accent/15'
-                    }`}
-                  >
-                    {copiedPrompt === index ? '✓ Copied!' : 'Copy to Clipboard'}
-                  </button>
-                </div>
-                <pre className="bg-gray-900 text-gray-100 rounded p-4 text-xs overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
-                  {p.prompt}
-                </pre>
+                {p.prompt ? (
+                  <>
+                    <div className="flex justify-end mb-2">
+                      <button
+                        onClick={() => handleCopyPrompt(index, p.prompt)}
+                        className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
+                          copiedPrompt === index
+                            ? 'bg-ed-green/10 text-ed-green'
+                            : 'bg-ed-accent/10 text-ed-accent hover:bg-ed-accent/15'
+                        }`}
+                      >
+                        {copiedPrompt === index ? '✓ Copied!' : 'Copy to Clipboard'}
+                      </button>
+                    </div>
+                    <pre className="bg-gray-900 text-gray-100 rounded p-4 text-xs overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
+                      {p.prompt}
+                    </pre>
+                  </>
+                ) : (
+                  <div className="rounded-md border border-ed-line bg-ed-bg p-4 text-sm text-ed-ink2">
+                    {p.instruction}
+                  </div>
+                )}
                 {(p.alert || p.tip) && (
                   <div className="mt-3 flex gap-3 rounded-md border-l-4 border-amber-500 bg-amber-50 p-3">
                     <span aria-hidden="true" className="text-lg leading-none text-amber-600">⚠</span>
@@ -954,15 +962,20 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                       )}
                       {p.tip && (
                         <p className="text-amber-800">
-                          {p.tip.text}{' '}
-                          <a
-                            href={p.tip.linkUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-amber-900 underline hover:text-amber-700"
-                          >
-                            {p.tip.linkLabel}
-                          </a>
+                          {p.tip.text}
+                          {p.tip.linkUrl && p.tip.linkLabel && (
+                            <>
+                              {' '}
+                              <a
+                                href={p.tip.linkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-amber-900 underline hover:text-amber-700"
+                              >
+                                {p.tip.linkLabel}
+                              </a>
+                            </>
+                          )}
                         </p>
                       )}
                     </div>
