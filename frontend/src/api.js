@@ -29,6 +29,23 @@ async function throwForResponseError(res) {
   throw error;
 }
 
+async function parseResponseBody(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text };
+  }
+}
+
+function uploadErrorMessage(data, res, fallback = 'Upload failed') {
+  if (res.status === 401) return 'Your session expired. Please log in and try the upload again.';
+  if (res.status === 403) return data?.error || 'Upload was forbidden. Please confirm you are logged in and have access to this project.';
+  if (res.status === 413) return 'File is too large for upload. Try a smaller PDF or paste the page text manually.';
+  return data?.error || `${fallback} with ${res.status}`;
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
@@ -283,8 +300,8 @@ export const api = {
       body: formData
       // No Content-Type header — browser sets multipart boundary automatically
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `Upload failed with ${res.status}`);
+    const data = await parseResponseBody(res);
+    if (!res.ok) throw new Error(uploadErrorMessage(data, res, 'Text extraction failed'));
     return data;
   },
   autoDescribe: (salesPageContent) => request('/upload/auto-describe', { method: 'POST', body: JSON.stringify({ sales_page_content: salesPageContent }) }),
@@ -322,16 +339,8 @@ export const api = {
       body: formData,
       signal
     });
-    let data;
-    try {
-      data = await res.json();
-    } catch {
-      // Vercel gateway 413 (request too large) returns non-JSON before the function runs.
-      if (res.status === 413) throw new Error('too large for upload (server limit)');
-      if (!res.ok) throw new Error(`Upload failed with ${res.status}`);
-      throw new Error('Invalid response from server');
-    }
-    if (!res.ok) throw new Error(data.error || `Upload failed with ${res.status}`);
+    const data = await parseResponseBody(res);
+    if (!res.ok) throw new Error(uploadErrorMessage(data, res));
     return data;
   },
   updateTemplate: (projectId, imageId, descriptionOrFields) => {
@@ -357,8 +366,8 @@ export const api = {
       credentials: 'include',
       body: formData
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `Upload failed with ${res.status}`);
+    const data = await parseResponseBody(res);
+    if (!res.ok) throw new Error(uploadErrorMessage(data, res));
     return data;
   },
   deleteProductImage: (projectId) =>
