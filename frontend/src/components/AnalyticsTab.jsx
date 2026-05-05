@@ -734,7 +734,7 @@ export default function AnalyticsTab({ projectId, project }) {
           <EditorialPageHeader
             eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
             title="Analytics"
-            meta="Track Meta campaign, ad set, and ad performance with filters, tags, and notes."
+            meta="Live campaign, ad set, and ad performance from the connected Meta ad account — filterable with tags and notes."
           />
         </div>
       </div>

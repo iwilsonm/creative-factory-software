@@ -1279,7 +1279,7 @@ export default function AgentMonitor({ projectId: externalProjectId, project: ex
           <EditorialPageHeader
             eyebrow={`${headerName.toUpperCase()} · AUTOMATION`}
             title="Automation"
-            meta="Creative Director creates ad sets, Creative Filter checks quality, and approved ads move toward Ready to Post."
+            meta="Uses two agents to automate ad generation — Creative Director plans batches and selects angles, Creative Filter scores and checks quality."
           />
         </div>
       )}

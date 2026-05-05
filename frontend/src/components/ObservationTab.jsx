@@ -12,6 +12,7 @@ import PassRateChart from './observation/PassRateChart';
 import TagManageDialog from './analytics/TagManageDialog';
 import InfoTooltip from './InfoTooltip';
 import EditorialPageHeader from './editorial/EditorialPageHeader';
+import ObservationSettings from './ObservationSettings';
 import ConfirmDialog from './ConfirmDialog';
 import {
   BulkActionBar,
@@ -57,6 +58,7 @@ function formatCell(col, row) {
 
 export default function ObservationTab({ projectId, project }) {
   const toast = useToast();
+  const [showSettings, setShowSettings] = useState(false);
   const [adSets, setAdSets] = useState([]);
   const [archived, setArchived] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -534,22 +536,38 @@ export default function ObservationTab({ projectId, project }) {
     />
   );
 
-  const observationMeta = [
-    project?.brand,
-    adSets?.length > 0 && `${adSets.length} ad set${adSets.length === 1 ? '' : 's'}`,
-  ].filter(Boolean).join(' · ');
-
   return (
     <div className="space-y-5">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-5">
-      {/* Editorial page header */}
+      {/* Editorial page header — always visible */}
       <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
         <EditorialPageHeader
           eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · OBSERVATION`}
           title="Observation"
-          meta={observationMeta}
-        />
+          meta="Track posted ad sets through the observation window — evaluate angle performance against spend and ROAS benchmarks."
+        >
+          <button
+            onClick={() => setShowSettings(s => !s)}
+            className={`ed-ghost px-2.5 py-2 ${showSettings ? 'bg-ed-accent/[0.08] text-ed-accent border-ed-accent/30' : ''}`}
+            title="Observation settings"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </EditorialPageHeader>
       </div>
+
+      {showSettings ? (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 fade-in">
+          <button
+            onClick={() => setShowSettings(false)}
+            className="text-[13px] text-ed-ink2 hover:text-ed-accent transition-colors mb-4"
+          >
+            &larr; Back to Observation
+          </button>
+          <ObservationSettings projectId={projectId} />
+        </div>
+      ) : (
+      <>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-5">
 
       {/* Phase 9 — Unobserved Ads (Meta ad sets not linked to CF) */}
       {(unlinkedLoading || unlinkedAdSets.length > 0 || archivedUnlinkedAdSets.length > 0) && (
@@ -1045,6 +1063,8 @@ export default function ObservationTab({ projectId, project }) {
       />
 
       <AdPreviewModal ad={previewAd} onClose={() => setPreviewAd(null)} />
+      </>
+      )}
     </div>
   );
 }

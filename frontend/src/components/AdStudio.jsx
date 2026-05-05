@@ -1964,12 +1964,6 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     setPickerCollapsed(false);
   };
 
-  const lastGeneratedAd = ads.find(a => a?.created_at);
-  const adStudioMeta = [
-    project?.brand,
-    ads.length > 0 && `${ads.length} ad${ads.length === 1 ? '' : 's'}`,
-    lastGeneratedAd?.created_at && `last generated ${formatDate(lastGeneratedAd.created_at)}`,
-  ].filter(Boolean).join(' · ');
 
   return (
     <div className="space-y-6">
@@ -1978,7 +1972,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         <EditorialPageHeader
           eyebrow={`${(project?.brand || project?.name || 'AD STUDIO').toUpperCase()} · AD STUDIO`}
           title="Ad Studio"
-          meta={adStudioMeta}
+          meta="Generate individual ad creatives or run batch generation with angle-based prompts."
         />
       </div>
 

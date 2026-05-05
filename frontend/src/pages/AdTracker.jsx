@@ -574,7 +574,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
         <EditorialPageHeader
           eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · AD PIPELINE`}
           title="Pipeline"
-          meta="Ads flow through three stages — Queue, Planner, and posted to Meta."
+          meta="Plan ad sets, combine ads, move them to Ready to Post, then track them once posted to Meta."
         />
       </div>
 

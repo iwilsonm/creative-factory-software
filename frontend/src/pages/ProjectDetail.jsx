@@ -20,9 +20,8 @@ const AgentMonitor = lazy(() => import('../components/AgentMonitor'));
 const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
 // Phase 5 — Notion-style Analytics tab
 const AnalyticsTab = lazy(() => import('../components/AnalyticsTab'));
-// Phase 3 — Observation tab + settings
+// Phase 3 — Observation tab (settings now live inside the tab)
 const ObservationTab = lazy(() => import('../components/ObservationTab'));
-const ObservationSettings = lazy(() => import('../components/ObservationSettings'));
 const RecentAgentActivity = lazy(() => import('../components/RecentAgentActivity'));
 
 const STATUS_CONFIG = {
@@ -88,7 +87,7 @@ export default function ProjectDetail() {
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
   // settingsSubTab persists in URL `?subtab=` so refresh holds position.
-  const validSubTabs = ['general', 'docs', 'meta', 'observation', 'templates'];
+  const validSubTabs = ['general', 'docs', 'meta', 'templates'];
   const subTabFromUrl = searchParams.get('subtab');
   const normalizedSubTabFromUrl = LEGACY_SETTINGS_SUBTABS[subTabFromUrl] || subTabFromUrl;
   const [settingsSubTab, setSettingsSubTabState] = useState(
@@ -111,6 +110,13 @@ export default function ProjectDetail() {
       setSearchParams(prev => {
         const next = new URLSearchParams(prev);
         next.set('tab', 'automation');
+        next.delete('subtab');
+        return next;
+      }, { replace: true });
+    } else if (raw === 'observation') {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'observation');
         next.delete('subtab');
         return next;
       }, { replace: true });
@@ -415,8 +421,7 @@ export default function ProjectDetail() {
               { id: 'general', num: '01', label: 'General', status: project?.status === 'active' ? 'ok' : project?.status === 'setup' ? 'todo' : 'ok' },
               { id: 'docs', num: '02', label: 'Foundational Docs', status: (project?.docCount || 0) > 0 ? 'ok' : 'todo' },
               { id: 'meta', num: '03', label: 'Meta', status: project?.meta_token ? 'ok' : 'warn' },
-              { id: 'observation', num: '04', label: 'Observation', status: 'ok' },
-              { id: 'templates', num: '05', label: 'Template Library', status: 'ok' },
+              { id: 'templates', num: '04', label: 'Template Library', status: 'ok' },
             ]}
             activeSection={settingsSubTab}
             onSectionChange={setSettingsSubTab}
@@ -662,11 +667,6 @@ export default function ProjectDetail() {
           {settingsSubTab === 'meta' && (
             <ErrorBoundary level="tab" key="meta">
               <MetaConnectPanel projectId={id} />
-            </ErrorBoundary>
-          )}
-          {settingsSubTab === 'observation' && (
-            <ErrorBoundary level="tab" key="observation_settings">
-              <ObservationSettings projectId={id} />
             </ErrorBoundary>
           )}
           {settingsSubTab === 'templates' && (
