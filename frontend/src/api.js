@@ -464,6 +464,8 @@ export const api = {
     request('/meta/select-account', { method: 'POST', body: JSON.stringify({ projectId, ...payload }) }),
   setMetaIntegrationPath: (projectId, path) =>
     request('/meta/integration-path', { method: 'POST', body: JSON.stringify({ projectId, path }) }),
+  setMetaReadPath: (projectId, path) =>
+    request('/meta/read-path', { method: 'POST', body: JSON.stringify({ projectId, path }) }),
   disconnectMeta: (projectId) =>
     request('/meta/disconnect', { method: 'POST', body: JSON.stringify({ projectId }) }),
   getMetaCampaigns: (projectId) =>

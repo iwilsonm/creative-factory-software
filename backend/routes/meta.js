@@ -33,6 +33,13 @@ import {
   isTokenInvalidError,
   META_OAUTH_SCOPES,
 } from '../services/metaApi.js';
+import {
+  MCPReadUnavailableError,
+  getCampaignsWithInsightsViaMcp,
+  getAdSetsWithInsightsViaMcp,
+  getAdsWithInsightsViaMcp,
+} from '../services/metaMcpRead.js';
+import { MCPNotAuthorizedError } from '../services/metaMcp.js';
 
 const router = Router();
 
@@ -66,6 +73,32 @@ function pkceChallenge(verifier) {
     .replace(/=/g, '')
     .replace(/\+/g, '-')
     .replace(/\//g, '_');
+}
+
+function isMcpRead(project) {
+  return (project?.meta_read_path || 'api') === 'mcp';
+}
+
+async function mcpReadArgs(project, opts, projectId) {
+  return {
+    anthropicApiKey: await getSetting('anthropic_api_key'),
+    metaToken: project.meta_access_token,
+    accountId: project.meta_account_id,
+    opts,
+    projectId,
+  };
+}
+
+function sendMetaReadError(res, err) {
+  if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+  if (err instanceof MCPReadUnavailableError || err instanceof MCPNotAuthorizedError || err.code === 'MCP_READ_UNAVAILABLE' || err.code === 'MCP_NOT_AUTHORIZED') {
+    return res.status(err.status || 424).json({
+      error: 'Meta MCP reads are not available for this account/app. Switch Read Path to API or request MCP read access.',
+      code: err.code || 'MCP_READ_UNAVAILABLE',
+      details: err.message,
+    });
+  }
+  return res.status(500).json({ error: err.message });
 }
 
 async function getMetaAppCreds() {
@@ -223,6 +256,8 @@ router.get('/connection-status', requireAuth, requireRole('admin', 'manager'), a
       account_name: project.meta_account_name,
       business_id: project.meta_business_id,
       integration_path: project.meta_integration_path || 'mcp',
+      posting_path: project.meta_integration_path || 'mcp',
+      read_path: project.meta_read_path || 'api',
       connected_at: project.meta_connected_at,
       token_expires_at: project.meta_token_expires_at,
       // Phase 2B
@@ -354,6 +389,20 @@ router.post('/integration-path', requireAuth, requireRole('admin', 'manager'), a
   }
 });
 
+router.post('/read-path', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { projectId, path } = req.body || {};
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (path !== 'mcp' && path !== 'api') {
+      return res.status(400).json({ error: 'path must be "mcp" or "api"' });
+    }
+    await updateProject(projectId, { meta_read_path: path });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ────────────────────────────────────────────────
 // Read endpoints (campaigns / ad sets / ads / insights) — for Analytics tab + 2C
 // ────────────────────────────────────────────────
@@ -365,11 +414,12 @@ router.get('/campaigns', requireAuth, requireRole('admin', 'manager'), async (re
     if (!raw?.meta_access_token || !raw?.meta_account_id) {
       return res.status(400).json({ error: 'Connect Meta + select ad account first.' });
     }
-    const campaigns = await getCampaigns(raw.meta_access_token, raw.meta_account_id);
+    const campaigns = isMcpRead(raw)
+      ? await getCampaignsWithInsightsViaMcp(await mcpReadArgs(raw, { datePreset: 'last_7d' }, projectId))
+      : await getCampaigns(raw.meta_access_token, raw.meta_account_id);
     res.json({ campaigns });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.' });
-    res.status(500).json({ error: err.message });
+    sendMetaReadError(res, err);
   }
 });
 
@@ -380,11 +430,13 @@ router.get('/adsets', requireAuth, requireRole('admin', 'manager'), async (req, 
     if (!raw?.meta_access_token || !raw?.meta_account_id) {
       return res.status(400).json({ error: 'Connect Meta + select ad account first.' });
     }
-    const adsets = await getAdSets(raw.meta_access_token, raw.meta_account_id, campaignId || null);
+    const readOpts = { datePreset: 'last_7d', campaignId: campaignId || null };
+    const adsets = isMcpRead(raw)
+      ? await getAdSetsWithInsightsViaMcp(await mcpReadArgs(raw, readOpts, projectId))
+      : await getAdSets(raw.meta_access_token, raw.meta_account_id, campaignId || null);
     res.json({ adsets });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.' });
-    res.status(500).json({ error: err.message });
+    sendMetaReadError(res, err);
   }
 });
 
@@ -394,11 +446,13 @@ router.get('/ads', requireAuth, requireRole('admin', 'manager'), async (req, res
     const raw = await getProjectRawForMeta(projectId);
     if (!raw?.meta_access_token) return res.status(400).json({ error: 'Connect Meta first.' });
     if (!adsetId) return res.status(400).json({ error: 'adsetId required' });
-    const ads = await getAds(raw.meta_access_token, adsetId);
+    const readOpts = { datePreset: 'last_7d', adsetId };
+    const ads = isMcpRead(raw)
+      ? await getAdsWithInsightsViaMcp(await mcpReadArgs(raw, readOpts, projectId))
+      : await getAds(raw.meta_access_token, adsetId);
     res.json({ ads });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.' });
-    res.status(500).json({ error: err.message });
+    sendMetaReadError(res, err);
   }
 });
 
@@ -408,11 +462,13 @@ router.get('/insights', requireAuth, requireRole('admin', 'manager'), async (req
     const raw = await getProjectRawForMeta(projectId);
     if (!raw?.meta_access_token) return res.status(400).json({ error: 'Connect Meta first.' });
     if (!objectId) return res.status(400).json({ error: 'objectId required' });
+    if (isMcpRead(raw)) {
+      throw new MCPReadUnavailableError('Object-level insights are not yet supported through the Meta MCP read adapter.');
+    }
     const insights = await getInsights(raw.meta_access_token, objectId, { datePreset: datePreset || 'last_7d' });
     res.json({ insights });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.' });
-    res.status(500).json({ error: err.message });
+    sendMetaReadError(res, err);
   }
 });
 

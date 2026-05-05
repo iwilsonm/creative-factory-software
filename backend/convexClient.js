@@ -251,7 +251,7 @@ export async function updateProject(id, fields) {
     // Phase 1 — Staging Page + Director cycle config
     'default_campaign_id', 'adset_default_template', 'ad_sets_per_cycle', 'ads_per_ad_set',
     // Phase 2A — Meta integration
-    'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_connected_at',
+    'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_read_path', 'meta_connected_at',
     // Phase 2B
     'meta_page_id', 'meta_page_name',
     // Phase 3 — observation
@@ -330,6 +330,7 @@ function convexProjectToRow(p) {
     meta_account_name: p.meta_account_name || null,
     meta_business_id: p.meta_business_id || null,
     meta_integration_path: p.meta_integration_path || 'mcp',  // default mcp
+    meta_read_path: p.meta_read_path || 'api',  // default api; this is the current stable Analytics/Observation read path
     meta_connected_at: p.meta_connected_at ?? null,
     // Phase 2B — Meta Page selection
     meta_page_id: p.meta_page_id || null,

@@ -191,13 +191,25 @@ export default function MetaConnectPanel({ projectId }) {
     }
   };
 
-  const handleTogglePath = async (path) => {
+  const handleTogglePostingPath = async (path) => {
     setBusy(true);
     try {
       await api.setMetaIntegrationPath(projectId, path);
       await loadStatus();
     } catch (err) {
-      toast.error(err?.message || 'Could not change integration path');
+      toast.error(err?.message || 'Could not change posting path');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleToggleReadPath = async (path) => {
+    setBusy(true);
+    try {
+      await api.setMetaReadPath(projectId, path);
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.message || 'Could not change read path');
     } finally {
       setBusy(false);
     }
@@ -349,36 +361,75 @@ export default function MetaConnectPanel({ projectId }) {
             )}
           </div>
 
-          {/* Integration path toggle */}
+          {/* Read path toggle */}
           <div className="border-t border-cream pt-4">
             <div className="text-xs font-semibold text-ed-ink2 mb-1 flex items-center gap-1">
-              Integration path
-              <InfoTooltip text="Choose how this app talks to Meta when posting. The recommended connector path is slower but safer; Direct API is faster but can carry more account risk." position="right" />
+              Analytics & Observation Read Path
+              <InfoTooltip text="Choose how Analytics and Observation pull campaigns, ad sets, ads, and performance data from Meta." position="right" />
             </div>
             <p className="text-[11px] text-ed-ink3 mb-2">
-              Connector routes Meta operations through the safer posting path. Direct API uses Meta's Marketing API directly.
+              API is the current stable read path. MCP reads use the Meta connector when Meta exposes the required read tools for this account/app.
             </p>
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => handleTogglePath('mcp')}
-                disabled={busy || status.integration_path === 'mcp'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${status.integration_path === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                onClick={() => handleToggleReadPath('api')}
+                disabled={busy || (status.read_path || 'api') === 'api'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${(status.read_path || 'api') === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+              >
+                API — current stable path
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleReadPath('mcp')}
+                disabled={busy || (status.read_path || 'api') === 'mcp'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${(status.read_path || 'api') === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+              >
+                MCP — connector reads
+              </button>
+            </div>
+            {(status.read_path || 'api') === 'mcp' && (
+              <div className="mt-2 text-xs text-ed-ink2 bg-cream border border-ed-line p-2 rounded">
+                MCP read mode will not silently fall back to API. If Meta's MCP server does not authorize read tools, Analytics and Observation will show a clear MCP read error.
+              </div>
+            )}
+          </div>
+
+          {/* Posting path toggle */}
+          <div className="border-t border-cream pt-4">
+            <div className="text-xs font-semibold text-ed-ink2 mb-1 flex items-center gap-1">
+              Posting Path
+              <InfoTooltip text="Choose how this app creates Meta ad sets and ads when you post from Ready to Post." position="right" />
+            </div>
+            <p className="text-[11px] text-ed-ink3 mb-2">
+              MCP routes ad set/ad creation through the connector path. Direct API uses Meta's Marketing API directly for posting.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => handleTogglePostingPath('mcp')}
+                disabled={busy || (status.posting_path || status.integration_path || 'mcp') === 'mcp'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${(status.posting_path || status.integration_path || 'mcp') === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 MCP — recommended
               </button>
               <button
                 type="button"
-                onClick={() => handleTogglePath('api')}
-                disabled={busy || status.integration_path === 'api'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${status.integration_path === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                onClick={() => handleTogglePostingPath('api')}
+                disabled={busy || (status.posting_path || status.integration_path || 'mcp') === 'api'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${(status.posting_path || status.integration_path || 'mcp') === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 Direct API
               </button>
             </div>
-            {status.integration_path === 'api' && (
+            {(status.posting_path || status.integration_path || 'mcp') === 'api' && (
               <div className="mt-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 p-2 rounded">
                 <strong>Warning:</strong> Direct API posting can carry account risk. Use the connector path unless you intentionally want the faster direct route.
+              </div>
+            )}
+            {(status.read_path || 'api') !== (status.posting_path || status.integration_path || 'mcp') && (
+              <div className="mt-2 text-xs text-ed-ink2 bg-cream border border-ed-line p-2 rounded">
+                Reads are using {(status.read_path || 'api').toUpperCase()}; posting is using {(status.posting_path || status.integration_path || 'mcp').toUpperCase()}.
               </div>
             )}
           </div>

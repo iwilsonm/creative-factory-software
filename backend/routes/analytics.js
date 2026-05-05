@@ -9,6 +9,7 @@ import {
   getProjectRawForMeta,
   convexClient,
   api,
+  getSetting,
 } from '../convexClient.js';
 import {
   getCampaignsWithInsights,
@@ -18,6 +19,13 @@ import {
   getHourlyInsights,
 } from '../services/metaAnalytics.js';
 import { isTokenInvalidError } from '../services/metaApi.js';
+import {
+  MCPReadUnavailableError,
+  getCampaignsWithInsightsViaMcp,
+  getAdSetsWithInsightsViaMcp,
+  getAdsWithInsightsViaMcp,
+} from '../services/metaMcpRead.js';
+import { MCPNotAuthorizedError } from '../services/metaMcp.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -95,6 +103,33 @@ async function attachCfMetadata(rows, level, projectId) {
   });
 }
 
+function isMcpRead(project) {
+  return (project?.meta_read_path || 'api') === 'mcp';
+}
+
+async function mcpReadArgs(project, opts, projectId) {
+  return {
+    anthropicApiKey: await getSetting('anthropic_api_key'),
+    metaToken: project.meta_access_token,
+    accountId: project.meta_account_id,
+    opts,
+    projectId,
+  };
+}
+
+function sendAnalyticsError(res, err) {
+  if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+  if (err instanceof MCPReadUnavailableError || err instanceof MCPNotAuthorizedError || err.code === 'MCP_READ_UNAVAILABLE' || err.code === 'MCP_NOT_AUTHORIZED') {
+    return res.status(err.status || 424).json({
+      error: 'Meta MCP reads are not available for this account/app. Switch Read Path to API or request MCP read access.',
+      code: err.code || 'MCP_READ_UNAVAILABLE',
+      details: err.message,
+    });
+  }
+  if (err.status === 400) return res.status(400).json({ error: err.message });
+  return res.status(500).json({ error: err.message });
+}
+
 router.get('/:projectId/analytics/campaigns', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const project = await getProjectRawForMeta(req.params.projectId);
@@ -102,13 +137,13 @@ router.get('/:projectId/analytics/campaigns', requireRole('admin', 'manager'), a
       return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
     }
     const opts = await readDateOpts(req);
-    const campaigns = await getCampaignsWithInsights(project.meta_access_token, project.meta_account_id, opts);
+    const campaigns = isMcpRead(project)
+      ? await getCampaignsWithInsightsViaMcp(await mcpReadArgs(project, opts, req.params.projectId))
+      : await getCampaignsWithInsights(project.meta_access_token, project.meta_account_id, opts);
     const enriched = await attachCfMetadata(campaigns, 'campaign', req.params.projectId);
     res.json({ campaigns: enriched });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
-    if (err.status === 400) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
+    sendAnalyticsError(res, err);
   }
 });
 
@@ -119,13 +154,13 @@ router.get('/:projectId/analytics/adsets', requireRole('admin', 'manager'), asyn
       return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
     }
     const opts = await readDateOpts(req);
-    const adsets = await getAdSetsWithInsights(project.meta_access_token, project.meta_account_id, opts);
+    const adsets = isMcpRead(project)
+      ? await getAdSetsWithInsightsViaMcp(await mcpReadArgs(project, opts, req.params.projectId))
+      : await getAdSetsWithInsights(project.meta_access_token, project.meta_account_id, opts);
     const enriched = await attachCfMetadata(adsets, 'ad_set', req.params.projectId);
     res.json({ adsets: enriched });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
-    if (err.status === 400) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
+    sendAnalyticsError(res, err);
   }
 });
 
@@ -136,13 +171,13 @@ router.get('/:projectId/analytics/ads', requireRole('admin', 'manager'), async (
       return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
     }
     const opts = await readDateOpts(req);
-    const ads = await getAdsWithInsights(project.meta_access_token, project.meta_account_id, opts);
+    const ads = isMcpRead(project)
+      ? await getAdsWithInsightsViaMcp(await mcpReadArgs(project, opts, req.params.projectId))
+      : await getAdsWithInsights(project.meta_access_token, project.meta_account_id, opts);
     const enriched = await attachCfMetadata(ads, 'ad', req.params.projectId);
     res.json({ ads: enriched });
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
-    if (err.status === 400) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
+    sendAnalyticsError(res, err);
   }
 });
 
@@ -152,13 +187,14 @@ router.get('/:projectId/analytics/timeseries', requireRole('admin', 'manager'), 
     if (!project?.meta_access_token || !project?.meta_account_id) {
       return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
     }
+    if (isMcpRead(project)) {
+      throw new MCPReadUnavailableError('Timeseries charts are not yet supported through the Meta MCP read adapter.');
+    }
     const opts = await readDateOpts(req);
     const data = await getTimeseriesInsights(project.meta_access_token, project.meta_account_id, opts);
     res.json(data);
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
-    if (err.status === 400) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
+    sendAnalyticsError(res, err);
   }
 });
 
@@ -168,13 +204,14 @@ router.get('/:projectId/analytics/hourly', requireRole('admin', 'manager'), asyn
     if (!project?.meta_access_token || !project?.meta_account_id) {
       return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
     }
+    if (isMcpRead(project)) {
+      throw new MCPReadUnavailableError('Hourly charts are not yet supported through the Meta MCP read adapter.');
+    }
     const opts = await readDateOpts(req);
     const data = await getHourlyInsights(project.meta_access_token, project.meta_account_id, opts);
     res.json(data);
   } catch (err) {
-    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
-    if (err.status === 400) return res.status(400).json({ error: err.message });
-    res.status(500).json({ error: err.message });
+    sendAnalyticsError(res, err);
   }
 });
 

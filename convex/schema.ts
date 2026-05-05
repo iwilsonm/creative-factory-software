@@ -48,6 +48,7 @@ export default defineSchema({
     meta_account_name: v.optional(v.string()),
     meta_business_id: v.optional(v.string()),             // Business Manager ID (if applicable)
     meta_integration_path: v.optional(v.string()),        // "mcp" | "api" — defaults to "mcp"
+    meta_read_path: v.optional(v.string()),               // "api" | "mcp" — defaults to "api"; controls Analytics/Observation reads
     meta_connected_at: v.optional(v.number()),            // unix ms; when OAuth completed
     // Phase 2B — Facebook Page selected for posting ads (one Page per project)
     meta_page_id: v.optional(v.string()),

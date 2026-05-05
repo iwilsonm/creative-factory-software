@@ -9,8 +9,15 @@ import {
   createReconciliationLog,
   convexClient,
   api,
+  getSetting,
 } from '../convexClient.js';
 import { getAdSetsWithInsights, getAdsWithInsights } from '../services/metaAnalytics.js';
+import {
+  MCPReadUnavailableError,
+  getAdSetsWithInsightsViaMcp,
+  getAdsWithInsightsViaMcp,
+} from '../services/metaMcpRead.js';
+import { MCPNotAuthorizedError } from '../services/metaMcp.js';
 
 const router = Router();
 router.use(requireAuth, requireRole('admin', 'manager'));
@@ -57,6 +64,31 @@ function normalizeMetaAdSetIds(body) {
   return [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))];
 }
 
+function isMcpRead(project) {
+  return (project?.meta_read_path || 'api') === 'mcp';
+}
+
+async function mcpReadArgs(project, opts, projectId) {
+  return {
+    anthropicApiKey: await getSetting('anthropic_api_key'),
+    metaToken: project.meta_access_token,
+    accountId: project.meta_account_id,
+    opts,
+    projectId,
+  };
+}
+
+function sendReconciliationError(res, err) {
+  if (err instanceof MCPReadUnavailableError || err instanceof MCPNotAuthorizedError || err.code === 'MCP_READ_UNAVAILABLE' || err.code === 'MCP_NOT_AUTHORIZED') {
+    return res.status(err.status || 424).json({
+      error: 'Meta MCP reads are not available for this account/app. Switch Read Path to API or request MCP read access.',
+      code: err.code || 'MCP_READ_UNAVAILABLE',
+      details: err.message,
+    });
+  }
+  return res.status(500).json({ error: err.message });
+}
+
 // GET /:projectId/reconciliation/unlinked-adsets
 // Returns Meta ad sets that have no matching CF ad set (not linked).
 router.get('/:projectId/reconciliation/unlinked-adsets', async (req, res) => {
@@ -68,8 +100,11 @@ router.get('/:projectId/reconciliation/unlinked-adsets', async (req, res) => {
       return res.status(400).json({ error: 'Project not connected to Meta' });
     }
 
+    const readOpts = { datePreset: 'last_30d' };
     const [metaAdSets, cfAdSets] = await Promise.all([
-      getAdSetsWithInsights(project.meta_access_token, project.meta_account_id, { datePreset: 'last_30d' }),
+      isMcpRead(project)
+        ? getAdSetsWithInsightsViaMcp(await mcpReadArgs(project, readOpts, projectId))
+        : getAdSetsWithInsights(project.meta_access_token, project.meta_account_id, readOpts),
       getAdSetsByProject(projectId),
     ]);
     const archivedRows = await convexClient.query(api.conductor.getArchivedUnlinkedAdSetsByProject, { projectId });
@@ -96,7 +131,7 @@ router.get('/:projectId/reconciliation/unlinked-adsets', async (req, res) => {
 
     res.json({ unlinked });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendReconciliationError(res, err);
   }
 });
 
@@ -204,10 +239,13 @@ router.get('/:projectId/reconciliation/unlinked-ads', async (req, res) => {
       return res.status(400).json({ error: 'Project not connected to Meta' });
     }
 
-    const metaAds = await getAdsWithInsights(project.meta_access_token, project.meta_account_id, {
+    const readOpts = {
       adsetId: metaAdsetId,
       datePreset: 'last_30d',
-    });
+    };
+    const metaAds = isMcpRead(project)
+      ? await getAdsWithInsightsViaMcp(await mcpReadArgs(project, readOpts, projectId))
+      : await getAdsWithInsights(project.meta_access_token, project.meta_account_id, readOpts);
 
     const cfAds = await convexClient.query(api.adCreatives.getByProject, { projectId });
     const linkedMetaAdIds = new Set(
@@ -228,7 +266,7 @@ router.get('/:projectId/reconciliation/unlinked-ads', async (req, res) => {
 
     res.json({ unlinked });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendReconciliationError(res, err);
   }
 });
 
