@@ -715,10 +715,10 @@ export const api = {
     }),
 
   // Primary Text & Headline Generation (sidebar)
-  generatePrimaryText: (deploymentId, flexAdId, direction, messages) =>
-    request(`/deployments/${deploymentId}/generate-primary-text`, { method: 'POST', body: JSON.stringify({ flexAdId, direction, messages }) }),
-  generateAdHeadlines: (deploymentId, primaryTexts, flexAdId, direction, messages) =>
-    request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId, direction, messages }) }),
+  generatePrimaryText: (deploymentId, flexAdId, direction, messages, options = {}) =>
+    request(`/deployments/${deploymentId}/generate-primary-text`, { method: 'POST', body: JSON.stringify({ flexAdId, direction, messages, ...options }) }),
+  generateAdHeadlines: (deploymentId, primaryTexts, flexAdId, direction, messages, options = {}) =>
+    request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId, direction, messages, ...options }) }),
 
   // Ad Studio — inline generation helpers for composing a single ad
   generateAdAngle: (projectId) =>

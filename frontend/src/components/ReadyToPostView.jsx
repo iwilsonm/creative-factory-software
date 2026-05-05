@@ -110,6 +110,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editingSection, setEditingSection] = useState(null); // `${cardKey}:${section}`
   const [sectionFields, setSectionFields] = useState({});
   const [savingSection, setSavingSection] = useState(null);
+  const [generatingSection, setGeneratingSection] = useState(null);
+  const [generationCounts, setGenerationCounts] = useState({});
   const [sortBy, setSortBy] = useState('newest');
   const [selectedCards, setSelectedCards] = useState(new Map()); // Map<cardKey, 'flex'|'single'>
   const [bulkMarking, setBulkMarking] = useState(false);
@@ -849,29 +851,36 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setSavingSection(null);
   };
 
+  const persistTextSectionItems = async ({ id, isFlex, field, items }) => {
+    const cleanItems = (items || []).map(item => (item || '').trim()).filter(Boolean);
+    const json = JSON.stringify(cleanItems);
+    const depField = field === 'primary_texts' ? 'primary_texts' : 'ad_headlines';
+    const flexField = field === 'primary_texts' ? 'primary_texts' : 'headlines';
+
+    if (isFlex) {
+      const flexAd = safeFlexAds.find(f => f.id === id);
+      const children = flexAd ? getFlexChildDeps(flexAd) : [];
+      await Promise.all(children.map(d => api.updateDeployment(d.id, { [depField]: json })));
+      setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+        children.some(c => c.id === d.id) ? { ...d, [depField]: json } : d
+      ));
+      setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f =>
+        f.id === id ? { ...f, [flexField]: json } : f
+      ));
+    } else {
+      await api.updateDeployment(id, { [depField]: json });
+      setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+        d.id === id ? { ...d, [depField]: json } : d
+      ));
+    }
+
+    return cleanItems;
+  };
+
   const saveTextSection = async ({ id, cardKey, isFlex, field }) => {
     setSavingSection(sectionEditKey(cardKey, field));
     try {
-      const items = (sectionFields.items || []).map(item => (item || '').trim()).filter(Boolean);
-      const json = JSON.stringify(items);
-      if (isFlex) {
-        const flexAd = safeFlexAds.find(f => f.id === id);
-        const children = flexAd ? getFlexChildDeps(flexAd) : [];
-        const depField = field === 'primary_texts' ? 'primary_texts' : 'ad_headlines';
-        const flexField = field === 'primary_texts' ? 'primary_texts' : 'headlines';
-        await Promise.all(children.map(d => api.updateDeployment(d.id, { [depField]: json })));
-        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
-          children.some(c => c.id === d.id) ? { ...d, [depField]: json } : d
-        ));
-        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f =>
-          f.id === id ? { ...f, [flexField]: json } : f
-        ));
-      } else {
-        await api.updateDeployment(id, { [field]: json });
-        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
-          d.id === id ? { ...d, [field]: json } : d
-        ));
-      }
+      await persistTextSectionItems({ id, isFlex, field, items: sectionFields.items || [] });
       addToast(field === 'primary_texts' ? 'Primary text saved' : 'Headlines saved', 'success');
       cancelSectionEdit();
     } catch (err) {
@@ -879,6 +888,46 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       addToast('Failed to save copy', 'error');
     }
     setSavingSection(null);
+  };
+
+  const generateTextSection = async ({ id, cardKey, isFlex, field, currentItems, replaceIndex = null }) => {
+    const isHeadline = field === 'headlines' || field === 'ad_headlines';
+    const sectionKey = sectionEditKey(cardKey, field);
+    const generateKey = `${sectionKey}:${replaceIndex === null ? 'all' : `replace-${replaceIndex}`}`;
+    const count = replaceIndex === null ? (generationCounts[sectionKey] || 5) : 1;
+    setGeneratingSection(generateKey);
+    try {
+      const dep = isFlex ? getFlexChildDeps(safeFlexAds.find(f => f.id === id))[0] : safeDeployments.find(d => d.id === id);
+      if (!dep) throw new Error('No deployment available for copy generation');
+      const flexAdId = isFlex ? id : undefined;
+      const options = { count, replaceIndex, existingItems: currentItems };
+      let generated = [];
+
+      if (isHeadline) {
+        const source = isFlex ? safeFlexAds.find(f => f.id === id)?.primary_texts : dep.primary_texts;
+        const primaryTexts = parseTextList(source);
+        if (primaryTexts.length === 0) {
+          throw new Error('Generate primary text before generating headlines');
+        }
+        const result = await api.generateAdHeadlines(dep.id, primaryTexts, flexAdId, undefined, undefined, options);
+        generated = parseTextList(result?.headlines || []);
+      } else {
+        const result = await api.generatePrimaryText(dep.id, flexAdId, undefined, undefined, options);
+        generated = parseTextList(result?.primary_texts || []);
+      }
+
+      if (generated.length === 0) throw new Error('No copy returned');
+      const nextItems = replaceIndex === null
+        ? generated.slice(0, count)
+        : currentItems.map((item, index) => index === replaceIndex ? generated[0] : item);
+
+      await persistTextSectionItems({ id, isFlex, field, items: nextItems });
+      addToast(replaceIndex === null ? 'Copy generated' : 'Variation regenerated', 'success');
+    } catch (err) {
+      console.error('Failed to generate Ready-to-Post copy:', err);
+      addToast(err.message || 'Failed to generate copy', 'error');
+    }
+    setGeneratingSection(null);
   };
 
   const saveAdNamesSection = async (flexAd, cardKey) => {
@@ -1227,6 +1276,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const allCopied = items.length > 0 && items.every((_, i) => copiedItems.has(`${cardKey}-${sectionId}-${i}`));
     const editKey = sectionEditKey(cardKey, field);
     const isEditing = editingSection === editKey;
+    const generationCount = generationCounts[editKey] || 5;
+    const generatingAll = generatingSection === `${editKey}:all`;
+    const itemLabel = field === 'primary_texts' ? 'primary text' : 'headline';
 
     const handleCopyItem = (text, label, index) => {
       copyToClipboard(text, label);
@@ -1247,7 +1299,30 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">{sectionLabel}</span>
             {helper && <p className="text-[11px] text-ed-ink2 mt-0.5 leading-relaxed">{helper}</p>}
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+            {!isEditing && !isPoster && (
+              <div className="inline-flex items-center gap-1 rounded-lg border border-ed-line bg-white px-1.5 py-1">
+                <select
+                  value={generationCount}
+                  onChange={(e) => setGenerationCounts(prev => ({ ...prev, [editKey]: Number(e.target.value) }))}
+                  className="bg-transparent text-[10px] text-ed-ink2 focus:outline-none"
+                  aria-label={`Number of ${itemLabel} variations to generate`}
+                >
+                  {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    generateTextSection({ id, cardKey, isFlex, field, currentItems: items });
+                  }}
+                  disabled={!!generatingSection || !!savingSection}
+                  className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
+                >
+                  {generatingAll ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+            )}
             {!isEditing && items.length > 0 && (
               <button onClick={(e) => { e.stopPropagation(); handleCopyAll(); }}
                 className={`inline-flex items-center gap-1 rounded-md font-medium hover:bg-ed-accent/10 transition-colors px-2 py-1 text-[10px] ${
@@ -1320,12 +1395,25 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     }`}>
                     {isCopied ? 'Copied' : 'Copy'}
                   </button>
+                  {!isPoster && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        generateTextSection({ id, cardKey, isFlex, field, currentItems: items, replaceIndex: i });
+                      }}
+                      disabled={!!generatingSection || !!savingSection}
+                      className="inline-flex items-center gap-1 rounded-md font-medium transition-colors flex-shrink-0 px-1.5 py-0.5 text-[9px] bg-ed-green/10 text-ed-green hover:bg-ed-green/15 disabled:opacity-50"
+                    >
+                      {generatingSection === `${editKey}:replace-${i}` ? 'Regenerating...' : 'Regenerate'}
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
         ) : (
-          <p className="text-[12px] text-ed-ink3 italic">No {field === 'primary_texts' ? 'primary text' : 'headline'} variations yet.</p>
+          <p className="text-[12px] text-ed-ink3 italic">No {itemLabel} variations yet.</p>
         )}
       </div>
     );

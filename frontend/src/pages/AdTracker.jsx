@@ -8,6 +8,7 @@ import ReadyToPostView from '../components/ReadyToPostView';
 import PostedView from '../components/PostedView';
 import PipelineSubNav from '../components/pipeline/PipelineSubNav';
 import EditorialPageHeader from '../components/editorial/EditorialPageHeader';
+import { computePlannerCardCount, computeReadyCardCount } from '../utils/pipelineCounts';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted'];
 const STATUS_META = {
@@ -28,10 +29,11 @@ const VALID_VIEWS = ['campaigns', 'status', 'ready_to_post'];
 
 export default function AdTracker({ projectId, project, userRole, searchParams, setSearchParams }) {
   const isPoster = userRole === 'poster';
-  const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments } = useAsyncData(
+  const { data: deployments, setData: setDeployments, loading, error: deploymentsError } = useAsyncData(
     () => api.getProjectDeployments(projectId, { force: true }).then(d => d.deployments || []),
     [projectId]
   );
+  const [pipelineAdSets, setPipelineAdSets] = useState([]);
   // Persist activeView in URL search params so it survives page refresh
   const viewFromUrl = searchParams?.get('view');
   const defaultView = isPoster ? 'ready_to_post' : 'campaigns';
@@ -73,6 +75,30 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
   const statusDropdownRef = useRef(null);
   const tagPopoverRef = useRef(null);
   const { addToast } = useToast();
+
+  const loadPipelineAdSets = useCallback(async () => {
+    try {
+      const rows = await api.getAdSets(projectId);
+      setPipelineAdSets(Array.isArray(rows) ? rows : []);
+    } catch {
+      setPipelineAdSets([]);
+    }
+  }, [projectId]);
+
+  const refreshPipelineData = useCallback(async () => {
+    const [depData, adSetRows] = await Promise.all([
+      api.getProjectDeployments(projectId, { force: true }),
+      api.getAdSets(projectId).catch(() => []),
+    ]);
+    const nextDeployments = depData?.deployments || [];
+    setDeployments(nextDeployments);
+    setPipelineAdSets(Array.isArray(adSetRows) ? adSetRows : []);
+    return nextDeployments;
+  }, [projectId, setDeployments]);
+
+  useEffect(() => {
+    loadPipelineAdSets();
+  }, [loadPipelineAdSets, deployments.length]);
 
   // Focus input when editing cell changes
   useEffect(() => {
@@ -126,9 +152,6 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
 
 
   // ─── Filtering & Sorting ──────────────────────────────────────────────────
-  // Campaigns = any deployment with local_campaign_id set
-  const campaignsDeps = deployments.filter(d => !!d.local_campaign_id);
-
   const filtered = statusFilter === 'all'
     ? deployments
     : deployments.filter(d => d.status === statusFilter);
@@ -144,17 +167,8 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
     statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
   }
 
-  // Smart count for ready_to_post: flex children count as 1 ad (the flex parent), not N
-  const readyToPostCardCount = (() => {
-    const readyDeps = deployments.filter(d => d.status === 'ready_to_post');
-    const flexIds = new Set();
-    let standalone = 0;
-    for (const d of readyDeps) {
-      if (d.flex_ad_id) flexIds.add(d.flex_ad_id);
-      else standalone++;
-    }
-    return standalone + flexIds.size;
-  })();
+  const plannerCardCount = computePlannerCardCount(deployments, pipelineAdSets);
+  const readyToPostCardCount = computeReadyCardCount(deployments, pipelineAdSets);
 
   // ─── Actions ──────────────────────────────────────────────────────────────
   const handleStatusChange = async (id, newStatus) => {
@@ -184,7 +198,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
         onClick: async () => {
           try {
             await api.restoreDeployment(id);
-            loadDeployments();
+            refreshPipelineData();
             addToast('Deployment restored', 'success');
           } catch { addToast('Failed to restore', 'error'); }
         },
@@ -300,7 +314,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
         onClick: async () => {
           try {
             await Promise.all(ids.map(id => api.restoreDeployment(id)));
-            loadDeployments();
+            refreshPipelineData();
             addToast(`Restored ${ids.length} deployment${ids.length !== 1 ? 's' : ''}`, 'success');
           } catch { addToast('Failed to restore', 'error'); }
         },
@@ -582,7 +596,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
       <PipelineSubNav
         activeView={activeView}
         onViewChange={(v) => { setActiveView(v); setSelectedIds(new Set()); if (v === 'status') setStatusFilter('posted'); }}
-        counts={{ planner: campaignsDeps.length, ready: readyToPostCardCount, posted: statusCounts['posted'] || 0 }}
+        counts={{ planner: plannerCardCount, ready: readyToPostCardCount, posted: statusCounts['posted'] || 0 }}
         isPoster={isPoster}
       />
 
@@ -612,7 +626,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
           </div>
           <p className="text-[14px] font-medium text-ed-ink">Failed to load ads</p>
           <p className="text-[12px] text-ed-ink2 mt-1">There was an error loading your ads. Please try refreshing.</p>
-          <button onClick={loadDeployments} className="mt-4 px-4 py-2 rounded-lg bg-ed-accent text-white text-[12px] font-medium hover:bg-ed-accent/90 transition-colors">
+          <button onClick={refreshPipelineData} className="mt-4 px-4 py-2 rounded-lg bg-ed-accent text-white text-[12px] font-medium hover:bg-ed-accent/90 transition-colors">
             Retry
           </button>
         </div>
@@ -625,7 +639,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
           deployments={deployments}
           setDeployments={setDeployments}
           addToast={addToast}
-          loadDeployments={loadDeployments}
+          loadDeployments={refreshPipelineData}
         />
       )}
 
@@ -636,7 +650,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
           deployments={deployments}
           setDeployments={setDeployments}
           addToast={addToast}
-          loadDeployments={loadDeployments}
+          loadDeployments={refreshPipelineData}
           onSwitchToPlanner={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
           isPoster={isPoster}
           highlightAdSetId={readyAdSetId}
@@ -660,7 +674,7 @@ export default function AdTracker({ projectId, project, userRole, searchParams, 
           deployments={deployments}
           setDeployments={setDeployments}
           addToast={addToast}
-          loadDeployments={loadDeployments}
+          loadDeployments={refreshPipelineData}
           isPoster={isPoster}
         />
       )}

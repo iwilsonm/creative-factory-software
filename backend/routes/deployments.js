@@ -946,14 +946,29 @@ router.post('/ads/:adId/tag', requireRole('admin', 'manager'), async (req, res) 
 // AI Generation: Primary Text & Headlines
 // =============================================
 
+function clampCopyVariationCount(value, fallback = 5) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(5, Math.max(1, parsed));
+}
+
+function normalizeReplaceIndex(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 /**
  * POST /deployments/:id/generate-primary-text — AI-generate primary text
- * Body: { flexAdId?: string, direction?: string }
+ * Body: { flexAdId?: string, direction?: string, count?: number, replaceIndex?: number }
  */
 router.post('/deployments/:id/generate-primary-text', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { flexAdId, direction, messages: threadMessages } = req.body;
+    const { flexAdId, direction, messages: threadMessages, existingItems } = req.body;
+    const replaceIndex = normalizeReplaceIndex(req.body?.replaceIndex);
+    const variationCount = replaceIndex !== null ? 1 : clampCopyVariationCount(req.body?.count, 5);
+    const variationLabel = variationCount === 1 ? '1 variation' : `${variationCount} variations`;
 
     // Get the deployment to find project_id
     const allDeps = await getAllDeployments();
@@ -1034,7 +1049,9 @@ ${beliefsSnippet ? `NECESSARY BELIEFS (excerpt):\n${beliefsSnippet}\n` : ''}
 AD CREATIVE INFO:
 ${creativeContext}
 
-Your task is to write 5 variations of Facebook ad primary text. Each MUST follow this structure:
+${Array.isArray(existingItems) && existingItems.length > 0 ? `EXISTING PRIMARY TEXT VARIATIONS:\n${existingItems.map((t, i) => `${i + 1}. ${String(t).slice(0, 700)}`).join('\n\n')}\n` : ''}
+
+Your task is to write exactly ${variationLabel} of Facebook ad primary text. Each MUST follow this structure:
 
 FIRST LINE (HOOK): The very first line must be an attention-grabbing hook that stops the scroll. Use a bold claim, surprising fact, provocative question, or pattern interrupt. This line is the most important — if it doesn't grab attention, nothing else matters.
 
@@ -1046,7 +1063,9 @@ Additional rules:
 - ${flexAdId ? 'Work well with multiple creative images that rotate' : 'Align with the specific ad creative described above'}
 - IMPORTANT: Split each variation into short, readable paragraphs. Each distinct thought or idea should be its own paragraph (separated by \\n\\n). Do NOT write dense blocks of text — break it up so it's easy to scan on mobile.
 
-ALWAYS return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
+${replaceIndex !== null ? `You are replacing variation #${replaceIndex + 1}. Make the replacement meaningfully different from the existing version while staying on strategy.` : ''}
+
+ALWAYS return ONLY a JSON object: { "primary_texts": [${Array.from({ length: variationCount }, (_, i) => `"text${i + 1}"`).join(', ')}] }
 Remember to use \\n\\n between paragraphs within each text variation.`;
 
     // ── Auto-detect and fetch URLs in the creative direction ──
@@ -1090,15 +1109,15 @@ Remember to use \\n\\n between paragraphs within each text variation.`;
 
 Their feedback: "${directionWithPages || 'Generate new variations with a different approach.'}"
 
-Write 5 NEW refined variations that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }`,
+Write exactly ${variationLabel} NEW refined ${variationCount === 1 ? 'variation' : 'variations'} that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "primary_texts": [${Array.from({ length: variationCount }, (_, i) => `"text${i + 1}"`).join(', ')}] }`,
       });
     } else {
       // First generation — include creative direction in the initial user message
       conversationMessages.push({
         role: 'user',
         content: directionWithPages
-          ? `Write 5 variations of Facebook ad primary text.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${directionWithPages}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.`
-          : 'Write 5 variations of Facebook ad primary text based on the brand context and ad creative info provided.',
+          ? `Write exactly ${variationLabel} of Facebook ad primary text.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${directionWithPages}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.`
+          : `Write exactly ${variationLabel} of Facebook ad primary text based on the brand context and ad creative info provided.`,
       });
     }
 
@@ -1126,6 +1145,7 @@ Write 5 NEW refined variations that incorporate this feedback while keeping what
         primaryTexts = [result.trim()];
       }
     }
+    primaryTexts = primaryTexts.map(t => String(t || '').trim()).filter(Boolean).slice(0, variationCount);
 
     // Build updated thread history (exclude system message — only user/assistant turns)
     const updatedThread = threadMessages ? [...threadMessages] : [];
@@ -1149,12 +1169,15 @@ Write 5 NEW refined variations that incorporate this feedback while keeping what
 
 /**
  * POST /deployments/:id/generate-ad-headlines — AI-generate headlines from primary text
- * Body: { primaryTexts: string[], flexAdId?: string, direction?: string, messages?: array }
+ * Body: { primaryTexts: string[], flexAdId?: string, direction?: string, messages?: array, count?: number, replaceIndex?: number }
  */
 router.post('/deployments/:id/generate-ad-headlines', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { primaryTexts, flexAdId, direction, messages: threadMessages } = req.body;
+    const { primaryTexts, flexAdId, direction, messages: threadMessages, existingItems } = req.body;
+    const replaceIndex = normalizeReplaceIndex(req.body?.replaceIndex);
+    const variationCount = replaceIndex !== null ? 1 : clampCopyVariationCount(req.body?.count, 5);
+    const variationLabel = variationCount === 1 ? '1 punchy headline' : `${variationCount} punchy headlines`;
 
     if (!primaryTexts?.length) {
       return res.status(400).json({ error: 'primaryTexts required' });
@@ -1190,14 +1213,18 @@ ${offerSnippet}
 PRIMARY TEXT VARIATIONS (what appears above the image):
 ${primaryTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
-Your task is to write 5 punchy headlines that:
+${Array.isArray(existingItems) && existingItems.length > 0 ? `EXISTING HEADLINES:\n${existingItems.map((h, i) => `${i + 1}. ${String(h).slice(0, 160)}`).join('\n')}\n` : ''}
+
+Your task is to write exactly ${variationLabel} that:
 - Are under 10 words each
 - Align with and complement the primary text above
 - Drive curiosity and clicks
 - Sound natural, not salesy
 - Each has a different angle or emphasis
 
-ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`;
+${replaceIndex !== null ? `You are replacing headline #${replaceIndex + 1}. Make the replacement meaningfully different from the existing version while staying on strategy.` : ''}
+
+ALWAYS return ONLY a JSON object: { "headlines": [${Array.from({ length: variationCount }, (_, i) => `"h${i + 1}"`).join(', ')}] }`;
 
     // ── Build conversation messages ──
     const conversationMessages = [{ role: 'system', content: systemPrompt }];
@@ -1213,15 +1240,15 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] 
 
 Their feedback: "${direction || 'Generate new headlines with a different approach.'}"
 
-Write 5 NEW refined headlines that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`,
+Write exactly ${variationLabel} that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "headlines": [${Array.from({ length: variationCount }, (_, i) => `"h${i + 1}"`).join(', ')}] }`,
       });
     } else {
       // First generation
       conversationMessages.push({
         role: 'user',
         content: direction
-          ? `Write 5 punchy Facebook ad headlines.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nShape every headline around this direction. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`
-          : 'Write 5 punchy Facebook ad headlines based on the brand context and primary text provided. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }',
+          ? `Write exactly ${variationLabel} for Facebook ads.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nShape every headline around this direction. Return ONLY a JSON object: { "headlines": [${Array.from({ length: variationCount }, (_, i) => `"h${i + 1}"`).join(', ')}] }`
+          : `Write exactly ${variationLabel} based on the brand context and primary text provided. Return ONLY a JSON object: { "headlines": [${Array.from({ length: variationCount }, (_, i) => `"h${i + 1}"`).join(', ')}] }`,
       });
     }
 
@@ -1248,6 +1275,7 @@ Write 5 NEW refined headlines that incorporate this feedback while keeping what 
         headlines = [result.trim()];
       }
     }
+    headlines = headlines.map(h => String(h || '').trim()).filter(Boolean).slice(0, variationCount);
 
     // Build updated thread history
     const updatedThread = threadMessages ? [...threadMessages] : [];
