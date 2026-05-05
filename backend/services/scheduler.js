@@ -7,6 +7,7 @@ import {
   releaseBatchWork,
   updateBatchJob,
 } from '../convexClient.js';
+import { pollAdStudioImageJobs } from './adStudioImageJobs.js';
 import { pollBatchJob, runBatch } from './batchProcessor.js';
 
 const POLL_INTERVAL_MS = 60 * 1000;
@@ -38,6 +39,8 @@ const state = {
   lastCronResult: null,
   lastConductorResumeAt: null,
   lastConductorResumeResult: null,
+  lastAdStudioImagePollAt: null,
+  lastAdStudioImagePollResult: null,
 };
 
 function localMinuteKey(date = new Date()) {
@@ -295,13 +298,16 @@ async function schedulerTick(options = {}) {
 
   try {
     await pollActiveBatches(owner);
+    const adStudioImageResult = await pollAdStudioImageJobs({ source: options.source || 'scheduler', owner: `${owner}:ad-studio-image` });
+    state.lastAdStudioImagePollAt = new Date().toISOString();
+    state.lastAdStudioImagePollResult = adStudioImageResult || { checked: 0, completed: 0, failed: 0, processing: 0 };
     const conductorResumeResult = await resumeBackgroundDirectorTests();
     await runDueScheduledBatches();
     const queueResult = await runQueuedBatches(owner);
     state.lastTickAt = new Date().toISOString();
     state.lastError = null;
     state.lastCronResult = queueResult;
-    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult, conductor: conductorResumeResult };
+    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult, conductor: conductorResumeResult, adStudioImages: adStudioImageResult };
   } catch (err) {
     state.lastError = err.message;
     console.error('[Scheduler] Tick failed:', err.message);

@@ -563,6 +563,25 @@ export async function getInProgressAdsByProject(projectId) {
   return ads.map(a => convexAdToRow(a));
 }
 
+export async function getActiveAdStudioImageJobs() {
+  const ads = ensureArray(await queryWithRetry(api.adCreatives.getActiveImageJobs, {}), 'convexClient.getActiveAdStudioImageJobs');
+  return ads.map(a => convexAdToRow(a));
+}
+
+export async function claimAdStudioImageJob(externalId, owner, leaseMs = 4 * 60 * 1000) {
+  const now = new Date();
+  return await mutationWithRetry(api.adCreatives.claimImageJob, {
+    externalId,
+    owner,
+    now: now.toISOString(),
+    lease_expires_at: new Date(now.getTime() + leaseMs).toISOString(),
+  });
+}
+
+export async function releaseAdStudioImageJob(externalId, owner) {
+  return await mutationWithRetry(api.adCreatives.releaseImageJob, { externalId, owner });
+}
+
 export async function getAdImageUrl(id) {
   return await cachedQuery('ad_creatives', api.adCreatives.getImageUrl, { externalId: id });
 }
@@ -590,6 +609,7 @@ export async function markStaleAdsAsFailed(projectId, opts = {}) {
     if (repaired >= maxRepairs) break;
     // Status precondition: only act on ads still in generating state.
     if (ad.status !== 'generating_copy' && ad.status !== 'generating_image') continue;
+    if (ad.status === 'generating_image' && ad.gemini_batch_job) continue;
     const ts = new Date(ad.created_at).getTime();
     if (!Number.isFinite(ts) || ts > cutoff) continue;
     try {
@@ -642,6 +662,10 @@ function convexAdToRow(a) {
     is_favorite: !!a.is_favorite,
     text_model: a.text_model || null,
     image_model: a.image_model || null,
+    gemini_batch_job: a.gemini_batch_job || null,
+    error_message: a.error_message || null,
+    failure_stage: a.failure_stage || null,
+    last_progress_at: a.last_progress_at || null,
     // Phase 1 — Staging Page + Filter agent
     ad_set_id: a.ad_set_id || null,
     filter_score: a.filter_score ?? null,
@@ -685,6 +709,9 @@ function convexAdSummaryToRow(a) {
     is_favorite: !!a.is_favorite,
     drive_file_id: a.drive_file_id || null,
     drive_url: a.drive_url || null,
+    error_message: a.error_message || null,
+    failure_stage: a.failure_stage || null,
+    last_progress_at: a.last_progress_at || null,
     has_edit_prompt: !!a.has_image_prompt,
     batch_job_id: a.batch_job_id || null,
     created_at: a.created_at,

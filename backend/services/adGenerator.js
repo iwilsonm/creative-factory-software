@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { generateImage as geminiGenerateImage } from './gemini.js';
 import { generateImage as openaiGenerateImage } from './openai.js';
+import { isDurableGeminiImageModel, submitAdStudioImageJob } from './adStudioImageJobs.js';
 
 // Batch-pipeline LLM model selection (per-call-type, chosen for capability).
 // Migrated off Anthropic 2026-04-30 — see changelog for rationale.
@@ -649,13 +650,17 @@ export async function generateAd(projectId, options = {}) {
     const productImage = hasProductImage
       ? { base64: productImageBase64, mimeType: productImageMimeType }
       : null;
-    const ad = await generateAndSaveImage({
-      adId, projectId, project, imagePrompt, aspectRatio, angle,
-      productImage, imageModel, renderReferenceImages,
-      expectedHeadline: headline || null,
-      expectedBodyCopy: bodyCopy || null,
-      emit
-    });
+    const ad = isDurableGeminiImageModel(imageModel)
+      ? await submitAdStudioImageJob({
+        adId, projectId, project, imagePrompt, aspectRatio, productImage, imageModel, emit, modeLabel: 'Mode1'
+      })
+      : await generateAndSaveImage({
+        adId, projectId, project, imagePrompt, aspectRatio, angle,
+        productImage, imageModel, renderReferenceImages,
+        expectedHeadline: headline || null,
+        expectedBodyCopy: bodyCopy || null,
+        emit
+      });
 
     return ad;
 
@@ -664,6 +669,9 @@ export async function generateAd(projectId, options = {}) {
     await convexClient.mutation(api.adCreatives.update, {
       externalId: adId,
       status: 'failed',
+      error_message: err.message,
+      failure_stage: 'ad_generation',
+      last_progress_at: new Date().toISOString(),
     });
     emit({ type: 'error', error: err.message });
     throw err;
@@ -952,13 +960,17 @@ export async function generateAdMode2(projectId, options = {}) {
     const productImage = hasProductImage
       ? { base64: productImageBase64, mimeType: productImageMimeType }
       : null;
-    const ad = await generateAndSaveImage({
-      adId, projectId, project, imagePrompt, aspectRatio, angle,
-      productImage, imageModel, renderReferenceImages,
-      expectedHeadline: headline || null,
-      expectedBodyCopy: bodyCopy || null,
-      emit, modeLabel: 'Mode2'
-    });
+    const ad = isDurableGeminiImageModel(imageModel)
+      ? await submitAdStudioImageJob({
+        adId, projectId, project, imagePrompt, aspectRatio, productImage, imageModel, emit, modeLabel: 'Mode2'
+      })
+      : await generateAndSaveImage({
+        adId, projectId, project, imagePrompt, aspectRatio, angle,
+        productImage, imageModel, renderReferenceImages,
+        expectedHeadline: headline || null,
+        expectedBodyCopy: bodyCopy || null,
+        emit, modeLabel: 'Mode2'
+      });
 
     return ad;
 
@@ -966,6 +978,9 @@ export async function generateAdMode2(projectId, options = {}) {
     await convexClient.mutation(api.adCreatives.update, {
       externalId: adId,
       status: 'failed',
+      error_message: err.message,
+      failure_stage: 'ad_generation_mode2',
+      last_progress_at: new Date().toISOString(),
     });
     emit({ type: 'error', error: err.message });
     throw err;
@@ -2382,15 +2397,19 @@ export async function regenerateImageOnly(projectId, options = {}) {
       hasProductImage ? makeRenderReference(productImageBase64, productImageMimeType, 'product') : null,
     ].filter(Boolean);
 
-    const ad = await generateAndSaveImage({
-      adId, projectId, project,
-      imagePrompt: finalPrompt,
-      aspectRatio, angle, productImage, imageModel, renderReferenceImages,
-      expectedHeadline: headline || null,
-      expectedBodyCopy: bodyCopy || null,
-      emit,
-      modeLabel: 'Regen'
-    });
+    const ad = isDurableGeminiImageModel(imageModel)
+      ? await submitAdStudioImageJob({
+        adId, projectId, project, imagePrompt: finalPrompt, aspectRatio, productImage, imageModel, emit, modeLabel: 'Regen'
+      })
+      : await generateAndSaveImage({
+        adId, projectId, project,
+        imagePrompt: finalPrompt,
+        aspectRatio, angle, productImage, imageModel, renderReferenceImages,
+        expectedHeadline: headline || null,
+        expectedBodyCopy: bodyCopy || null,
+        emit,
+        modeLabel: 'Regen'
+      });
 
     return ad;
 
@@ -2398,6 +2417,9 @@ export async function regenerateImageOnly(projectId, options = {}) {
     await convexClient.mutation(api.adCreatives.update, {
       externalId: adId,
       status: 'failed',
+      error_message: err.message,
+      failure_stage: 'image_regeneration',
+      last_progress_at: new Date().toISOString(),
     });
     emit({ type: 'error', error: err.message });
     throw err;

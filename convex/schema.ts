@@ -124,6 +124,12 @@ export default defineSchema({
     sub_angle: v.optional(v.string()),       // Secondary variation label within a hook lane
     text_model: v.optional(v.string()),      // LLM used for copy (e.g., "gpt-5.2")
     image_model: v.optional(v.string()),     // Model used for image (e.g., "nano-banana-2")
+    gemini_batch_job: v.optional(v.string()), // Ad Studio durable image job name
+    error_message: v.optional(v.union(v.string(), v.null())),
+    failure_stage: v.optional(v.union(v.string(), v.null())),
+    last_progress_at: v.optional(v.string()),
+    worker_lease_owner: v.optional(v.union(v.string(), v.null())),
+    worker_lease_expires_at: v.optional(v.union(v.string(), v.null())),
     // Phase 1 — Staging Page + Filter agent
     ad_set_id: v.optional(v.string()),       // → ad_sets.externalId; set when ad joins a Staging Page ad set
     filter_score: v.optional(v.number()),    // 0-1, Filter agent quality score

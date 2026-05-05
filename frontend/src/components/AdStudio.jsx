@@ -174,7 +174,7 @@ function getGalleryStatusMeta(ad) {
     return {
       label: 'Failed',
       className: 'bg-red-100/80 text-red-600',
-      title: 'Generation failed.',
+      title: ad.error_message || 'Generation failed.',
     };
   }
   if (isActiveGeneratingAd(ad)) {
@@ -391,7 +391,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         const restoredGens = data.ads
           .filter(ad => {
             const age = now - new Date(ad.created_at).getTime();
-            return age < STALE_MS; // Skip stale items
+            if (ad.status === 'generating_image' && ad.gemini_batch_job) return age < 24 * 60 * 60 * 1000;
+            return age < STALE_MS; // Skip stale non-durable items
           })
           .map(ad => ({
             id: `restored-${ad.id}`,
@@ -400,7 +401,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             status: ad.status,
             message: ad.status === 'generating_copy'
               ? 'Creative direction in progress...'
-              : 'Image generation in progress...',
+              : 'Image generation is running in the background...',
             error: '',
             warning: '',
             progress: ad.status === 'generating_copy' ? 25 : 65,
@@ -425,35 +426,35 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  // Poll for status updates on restored (non-SSE) queue items
-  const restoredCount = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error).length;
+  // Poll for durable image jobs and restored queue items.
+  const trackedGenerationCount = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && !g.error).length;
 
   usePolling(async () => {
     try {
       const data = await api.getInProgressAds(projectId);
       const inProgressMap = new Map(ensureArray(data?.ads, 'AdStudio.inProgressAds').map(a => [a.id, a]));
 
-      const currentRestored = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error);
-      const disappeared = currentRestored.filter(g => !inProgressMap.has(g.adExternalId));
+      const currentTracked = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && !g.error);
+      const disappeared = currentTracked.filter(g => !inProgressMap.has(g.adExternalId));
 
-      const finalStatuses = {};
+      const finalAds = {};
       await Promise.all(disappeared.map(async (g) => {
         try {
           const ad = await api.getAd(projectId, g.adExternalId);
-          finalStatuses[g.adExternalId] = ad.status;
+          finalAds[g.adExternalId] = normalizeAdRecord(ad);
         } catch {
-          finalStatuses[g.adExternalId] = 'completed';
+          finalAds[g.adExternalId] = { id: g.adExternalId, status: 'completed' };
         }
       }));
 
       setActiveGens(prev => prev.map(g => {
-        if (g.source !== 'restored') return g;
         if (g.status === 'completed' || g.error) return g;
+        if (!g.adExternalId) return g;
 
         if (!inProgressMap.has(g.adExternalId)) {
-          const finalStatus = finalStatuses[g.adExternalId];
-          if (finalStatus === 'failed') {
-            return { ...g, status: null, error: 'Generation failed on server', progress: 0 };
+          const finalAd = finalAds[g.adExternalId];
+          if (finalAd?.status === 'failed') {
+            return { ...g, status: null, error: finalAd.error_message || 'Generation failed on server', progress: 0 };
           }
           return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
         }
@@ -464,26 +465,39 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             ...g,
             status: currentAd.status,
             message: currentAd.status === 'generating_image'
-              ? 'Image generation in progress...'
+              ? 'Image generation is running in the background...'
               : 'Creative direction in progress...',
-            progress: currentAd.status === 'generating_image' ? 65 : 25,
+            progress: currentAd.status === 'generating_image' ? 78 : 25,
           };
         }
 
         return g;
       }));
 
-      if (Object.values(finalStatuses).some(s => s === 'completed')) {
+      const finalAdRows = Object.values(finalAds).filter(ad => ad?.id && ['completed', 'failed'].includes(ad.status));
+      const completedAds = finalAdRows.filter(ad => ad.status === 'completed');
+      if (finalAdRows.length > 0) {
+        setAds(prev => {
+          const next = [...prev];
+          for (const ad of finalAdRows) {
+            const idx = next.findIndex(existing => existing.id === ad.id);
+            if (idx >= 0) next[idx] = { ...next[idx], ...ad };
+            else next.unshift(ad);
+          }
+          return next;
+        });
         loadAds();
-        const completedIds = Object.entries(finalStatuses).filter(([, s]) => s === 'completed').map(([id]) => `restored-${id}`);
+      }
+      if (completedAds.length > 0) {
+        const completedAdIds = new Set(completedAds.map(ad => ad.id));
         setTimeout(() => {
-          setActiveGens(prev => prev.filter(g => !completedIds.includes(g.id)));
+          setActiveGens(prev => prev.filter(g => !(g.adExternalId && completedAdIds.has(g.adExternalId) && g.status === 'completed')));
         }, 5000);
       }
     } catch (err) {
       console.error('Queue poll error:', err);
     }
-  }, 5000, restoredCount > 0);
+  }, 5000, trackedGenerationCount > 0);
 
   // Sync prompt guidelines when project prop changes
   useEffect(() => {
@@ -3273,6 +3287,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   <p className="text-[12px] text-ed-ink font-medium truncate" title={ad.headline || ad.angle_name || ''}>
                     {ad.headline || ad.angle_name || 'Untitled'}
                   </p>
+                  {ad.status === 'failed' && ad.error_message && (
+                    <p className="text-[11px] text-ed-rust mt-1 line-clamp-2" title={ad.error_message}>
+                      {ad.error_message}
+                    </p>
+                  )}
                   {/* Tags */}
                   <div className="flex items-center gap-1 mt-1 flex-wrap">
                     {(ad.tags || []).slice(0, 3).map(tag => (
@@ -3366,6 +3385,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-medium text-ed-ink truncate">{ad.headline || ad.angle_name || 'Untitled'}</p>
+                  {ad.status === 'failed' && ad.error_message && (
+                    <p className="text-[11px] text-ed-rust truncate" title={ad.error_message}>
+                      {ad.error_message}
+                    </p>
+                  )}
                   <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                     {(ad.tags || []).slice(0, 4).map(tag => (
                       <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-ed-accent/5 text-ed-accent rounded-full">{tag}</span>

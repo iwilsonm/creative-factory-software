@@ -77,6 +77,10 @@ export const getGalleryByProject = query({
       drive_file_id: ad.drive_file_id,
       drive_url: ad.drive_url,
       has_image_prompt: !!ad.image_prompt,
+      gemini_batch_job: ad.gemini_batch_job,
+      error_message: ad.error_message,
+      failure_stage: ad.failure_stage,
+      last_progress_at: ad.last_progress_at,
       batch_job_id: ad.batch_job_id,
       created_at: ad.created_at,
     }));
@@ -169,6 +173,12 @@ export const create = mutation({
     sub_angle: v.optional(v.string()),
     text_model: v.optional(v.string()),
     image_model: v.optional(v.string()),
+    gemini_batch_job: v.optional(v.string()),
+    error_message: v.optional(v.union(v.string(), v.null())),
+    failure_stage: v.optional(v.union(v.string(), v.null())),
+    last_progress_at: v.optional(v.string()),
+    worker_lease_owner: v.optional(v.union(v.string(), v.null())),
+    worker_lease_expires_at: v.optional(v.union(v.string(), v.null())),
     // Phase 1 — Staging Page + Filter agent
     ad_set_id: v.optional(v.string()),
     filter_score: v.optional(v.number()),
@@ -212,6 +222,12 @@ export const update = mutation({
     is_favorite: v.optional(v.boolean()),
     text_model: v.optional(v.string()),
     image_model: v.optional(v.string()),
+    gemini_batch_job: v.optional(v.string()),
+    error_message: v.optional(v.union(v.string(), v.null())),
+    failure_stage: v.optional(v.union(v.string(), v.null())),
+    last_progress_at: v.optional(v.string()),
+    worker_lease_owner: v.optional(v.union(v.string(), v.null())),
+    worker_lease_expires_at: v.optional(v.union(v.string(), v.null())),
     // Phase 1 — Staging Page + Filter agent
     ad_set_id: v.optional(v.string()),
     filter_score: v.optional(v.number()),
@@ -299,6 +315,78 @@ export const getRejectedByProject = query({
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .collect();
     return ads.filter((a) => a.status === "quality_rejected");
+  },
+});
+
+export const getActiveImageJobs = query({
+  args: {},
+  handler: async (ctx) => {
+    const ads = await ctx.db.query("ad_creatives").collect();
+    return ads
+      .filter((ad) =>
+        ad.status === "generating_image" &&
+        !!ad.image_prompt &&
+        !ad.storageId
+      )
+      .slice(0, 50);
+  },
+});
+
+export const claimImageJob = mutation({
+  args: {
+    externalId: v.string(),
+    owner: v.string(),
+    lease_expires_at: v.string(),
+    now: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const ad = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!ad) return { claimed: false, reason: "not_found" };
+    if (ad.status !== "generating_image" || ad.storageId || !ad.image_prompt) {
+      return { claimed: false, reason: "not_active" };
+    }
+    const leaseOwner = ad.worker_lease_owner || null;
+    const leaseExpiresAt = ad.worker_lease_expires_at || null;
+    if (leaseOwner && leaseExpiresAt && leaseExpiresAt > args.now) {
+      return { claimed: false, reason: "leased" };
+    }
+    await ctx.db.patch(ad._id, {
+      worker_lease_owner: args.owner,
+      worker_lease_expires_at: args.lease_expires_at,
+    });
+    return {
+      claimed: true,
+      ad: {
+        ...ad,
+        worker_lease_owner: args.owner,
+        worker_lease_expires_at: args.lease_expires_at,
+      },
+    };
+  },
+});
+
+export const releaseImageJob = mutation({
+  args: {
+    externalId: v.string(),
+    owner: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const ad = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!ad) return { released: false, reason: "not_found" };
+    if (ad.worker_lease_owner && ad.worker_lease_owner !== args.owner) {
+      return { released: false, reason: "not_owner" };
+    }
+    await ctx.db.patch(ad._id, {
+      worker_lease_owner: null,
+      worker_lease_expires_at: null,
+    });
+    return { released: true };
   },
 });
 
