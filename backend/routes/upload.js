@@ -16,6 +16,7 @@ import { fetchUrlText, safeUrlForLogs } from '../services/urlFetcher.js';
 
 const uploadDir = os.tmpdir();
 const SAFE_DOCUMENT_EXTENSIONS = ['.pdf', '.txt', '.html', '.htm', '.docx', '.epub', '.mobi', '.md', '.csv', '.json', '.xml', '.rtf', '.xls', '.xlsx'];
+const MAX_DOCUMENT_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 function redactPotentialSecrets(text = '') {
   return String(text)
@@ -26,13 +27,15 @@ function redactPotentialSecrets(text = '') {
 
 const upload = multer({
   dest: uploadDir,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  limits: { fileSize: MAX_DOCUMENT_UPLOAD_BYTES },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (SAFE_DOCUMENT_EXTENSIONS.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`File type ${ext} is not supported for project documents.`));
+      const err = new Error(`File type ${ext || '(none)'} is not supported. Upload a PDF, TXT, HTML, DOCX, CSV, JSON, XML, RTF, or spreadsheet file.`);
+      err.code = 'UNSUPPORTED_FILE_TYPE';
+      cb(err);
     }
   }
 });
@@ -40,8 +43,32 @@ const upload = multer({
 const router = Router();
 router.use(requireAuth);
 
+function handleDocumentUpload(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        error: 'That file is too large for a reliable upload. Use a file under 4 MB, split or compress the PDF, or paste the text manually.',
+        code: 'FILE_TOO_LARGE',
+        details: `Max upload size is ${MAX_DOCUMENT_UPLOAD_BYTES} bytes.`,
+      });
+    }
+    if (err.code === 'UNSUPPORTED_FILE_TYPE') {
+      return res.status(415).json({
+        error: err.message,
+        code: 'UNSUPPORTED_FILE_TYPE',
+      });
+    }
+    return res.status(400).json({
+      error: 'The upload could not be read. Try saving the file again, uploading a smaller file, or paste the text manually.',
+      code: 'UPLOAD_PARSE_FAILED',
+      details: err.message,
+    });
+  });
+}
+
 // Upload a file and extract text content
-router.post('/extract-text', upload.single('file'), async (req, res) => {
+router.post('/extract-text', handleDocumentUpload, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
@@ -50,7 +77,17 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
 
     if (ext === '.pdf') {
       const buffer = fs.readFileSync(req.file.path);
-      const data = await pdf(buffer);
+      let data;
+      try {
+        data = await pdf(buffer);
+      } catch (err) {
+        if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(400).json({
+          error: 'This PDF could not be read. Re-save or re-export the PDF, run OCR if it is scanned, or paste the sales page text manually.',
+          code: 'MALFORMED_PDF',
+          details: err.message,
+        });
+      }
       text = data.text;
     } else if (ext === '.docx') {
       const buffer = fs.readFileSync(req.file.path);
@@ -120,7 +157,10 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
       const emptyMessage = ext === '.pdf'
         ? 'This PDF did not contain readable text. It may be scanned or image-only. Try saving the live page as a text-based PDF, run OCR on the PDF, or paste the sales page text manually.'
         : 'No readable text could be extracted from this file. Try uploading a text-based PDF, TXT/HTML/DOCX file, or paste the sales page text manually.';
-      return res.status(400).json({ error: emptyMessage });
+      return res.status(400).json({
+        error: emptyMessage,
+        code: ext === '.pdf' ? 'EMPTY_OR_SCANNED_PDF' : 'NO_READABLE_TEXT',
+      });
     }
 
     res.json({

@@ -335,8 +335,22 @@ try {
   app.use((err, req, res, next) => {
     console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
     if (res.headersSent) return next(err);
+    if (err?.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        error: 'That file is too large for a reliable upload. Use a smaller file and try again.',
+        code: 'FILE_TOO_LARGE',
+        details: err.message,
+      });
+    }
+    if (/file type/i.test(err?.message || '')) {
+      return res.status(415).json({
+        error: err.message,
+        code: 'UNSUPPORTED_FILE_TYPE',
+      });
+    }
     res.status(err.status || 500).json({
       error: err.message || 'Internal server error',
+      code: err.code || undefined,
     });
   });
 

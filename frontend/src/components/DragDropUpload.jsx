@@ -1,17 +1,27 @@
 import { useState, useRef, useCallback } from 'react';
 import { api } from '../api';
 
+const DEFAULT_MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '0 bytes';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${bytes} bytes`;
+}
+
 /**
  * Reusable drag-and-drop + click file upload component.
- * Supports PDF, TXT, HTML files. Extracts text via the backend /upload/extract-text endpoint.
+ * Extracts document text via the backend /upload/extract-text endpoint.
  *
  * @param {object} props
  * @param {(result: { text: string, filename: string, charCount: number }) => void} props.onTextExtracted
  *   Called after the file is uploaded and text is extracted
  * @param {boolean} [props.disabled] - Disable the upload area
  * @param {string} [props.label] - Main label text (default: "Drop your file here")
- * @param {string} [props.sublabel] - Sublabel text (default: "PDF, TXT, or HTML")
- * @param {string} [props.accept] - File accept types (default: ".pdf,.txt,.html,.htm")
+ * @param {string} [props.sublabel] - Sublabel text
+ * @param {string} [props.accept] - File accept types
+ * @param {number} [props.maxFileBytes] - Client-side upload size limit
  * @param {'default'|'uploading'|'success'} [props.status] - External status override
  * @param {string} [props.successMessage] - Message shown in success state
  * @param {string} [props.className] - Additional CSS classes for the container
@@ -26,20 +36,46 @@ export default function DragDropUpload({
   status: externalStatus,
   successMessage,
   className = '',
-  compact = false
+  compact = false,
+  maxFileBytes = DEFAULT_MAX_UPLOAD_BYTES
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [error, setError] = useState('');
+  const [errorDetails, setErrorDetails] = useState('');
   const fileInputRef = useRef(null);
 
   const status = externalStatus || (uploading ? 'uploading' : uploadResult ? 'success' : 'default');
 
+  const validateFile = useCallback((file) => {
+    const ext = file.name.includes('.') ? `.${file.name.split('.').pop().toLowerCase()}` : '';
+    const allowed = accept.split(',').map(item => item.trim().toLowerCase()).filter(Boolean);
+
+    if (!allowed.includes(ext)) {
+      return `File type ${ext || '(none)'} is not supported. Upload one of: ${accept}.`;
+    }
+
+    if (file.size > maxFileBytes) {
+      return `This file is ${formatBytes(file.size)}, which is too large for a reliable upload. Use a file under ${formatBytes(maxFileBytes)}, split/compress the PDF, or paste the text manually.`;
+    }
+
+    return '';
+  }, [accept, maxFileBytes]);
+
   const processFile = useCallback(async (file) => {
     if (!file) return;
+    const validationError = validateFile(file);
+    if (validationError) {
+      setError(validationError);
+      setErrorDetails('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setUploading(true);
     setError('');
+    setErrorDetails('');
     setUploadResult(null);
 
     try {
@@ -48,11 +84,12 @@ export default function DragDropUpload({
       onTextExtracted(result);
     } catch (err) {
       setError(err.message || 'Failed to extract text from file');
+      setErrorDetails(err.technical_details || (err.details ? String(err.details) : ''));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [onTextExtracted]);
+  }, [onTextExtracted, validateFile]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -75,16 +112,9 @@ export default function DragDropUpload({
 
     const file = e.dataTransfer?.files?.[0];
     if (file) {
-      // Validate file type
-      const ext = '.' + file.name.split('.').pop().toLowerCase();
-      const allowed = accept.split(',');
-      if (!allowed.includes(ext)) {
-        setError(`File type ${ext} not supported. Use ${accept}`);
-        return;
-      }
       processFile(file);
     }
-  }, [disabled, uploading, accept, processFile]);
+  }, [disabled, uploading, processFile]);
 
   const handleClick = useCallback(() => {
     if (!disabled && !uploading) {
@@ -163,6 +193,9 @@ export default function DragDropUpload({
               <p className={`text-gray-400 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
                 {sublabel}
               </p>
+              <p className={`text-gray-400 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
+                Max reliable upload: {formatBytes(maxFileBytes)}
+              </p>
             </div>
           )}
         </div>
@@ -179,7 +212,15 @@ export default function DragDropUpload({
 
       {/* Error message */}
       {error && (
-        <p className="text-xs text-red-600 mt-2">{error}</p>
+        <div className="mt-2 space-y-1">
+          <p className="text-xs text-red-600">{error}</p>
+          {errorDetails && (
+            <details className="text-[11px] text-ed-ink3">
+              <summary className="cursor-pointer">Details</summary>
+              <p className="mt-1 break-words">{errorDetails}</p>
+            </details>
+          )}
+        </div>
       )}
     </div>
   );

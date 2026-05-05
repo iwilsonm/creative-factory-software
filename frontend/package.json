@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "audit:copy": "node scripts/audit-customer-copy.js",
+    "test:api-errors": "node scripts/test-api-errors.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

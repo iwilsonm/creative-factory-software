@@ -1,60 +1,26 @@
 import { normalizeArrayFields, normalizeArrayResponse } from './utils/collections';
+import { createApiErrorFromResponse, normalizeApiError, normalizeFetchException, parseResponseBody } from './utils/apiErrors';
 
 const API_BASE = '/api';
 
-// Shared error path for non-OK responses across all fetch wrappers.
-// Vercel's gateway returns plain-text bodies for 413 (Request Entity Too Large) before
-// the function runs, so JSON parsing must be tolerant.
-async function throwForResponseError(res) {
-  if (res.status === 413) {
-    throw new Error('Request body too large. Please reduce image size.');
-  }
-  let err;
-  try {
-    err = await res.json();
-  } catch {
-    err = { error: `HTTP ${res.status}` };
-  }
-  const error = new Error(err.error || `Request failed with ${res.status}`);
-  error.status = res.status;
-  error.code = err.code;
-  error.details = err.details;
-  error.action = err.action;
-  error.settings_path = err.settings_path;
-  error.settings_subtab = err.settings_subtab;
-  error.stage = err.stage;
-  error.reason_code = err.reason_code;
-  error.attempted_methods = err.attempted_methods;
-  error.manual_recovery_steps = err.manual_recovery_steps;
-  throw error;
-}
-
-async function parseResponseBody(res) {
-  const text = await res.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { error: text };
-  }
-}
-
-function uploadErrorMessage(data, res, fallback = 'Upload failed') {
-  if (res.status === 401) return 'Your session expired. Please log in and try the upload again.';
-  if (res.status === 403) return data?.error || 'Upload was forbidden. Please confirm you are logged in and have access to this project.';
-  if (res.status === 413) return 'File is too large for upload. Try a smaller PDF or paste the page text manually.';
-  return data?.error || `${fallback} with ${res.status}`;
+async function throwForResponseError(res, fallback = 'Request failed') {
+  throw await createApiErrorFromResponse(res, fallback);
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    },
-    ...options
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
+    });
+  } catch (err) {
+    throw normalizeFetchException(err, 'Request failed');
+  }
 
   if (res.status === 401 && !path.includes('/auth/')) {
     window.location.href = '/login';
@@ -65,13 +31,16 @@ async function request(path, options = {}) {
     await throwForResponseError(res);
   }
 
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    throw new Error('Invalid response from server');
+  const { parsed, rawText } = await parseResponseBody(res);
+  if (rawText && parsed?.raw_body) {
+    throw normalizeApiError({
+      status: res.status,
+      data: parsed,
+      rawText,
+      fallback: 'Invalid response from server',
+    });
   }
-  return data;
+  return parsed;
 }
 
 /**
@@ -84,15 +53,20 @@ function streamSSE(path, onEvent) {
   const controller = new AbortController();
 
   const done = (async () => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal
-    });
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal
+      });
+    } catch (err) {
+      throw normalizeFetchException(err, 'Stream failed');
+    }
 
     if (!res.ok) {
-      await throwForResponseError(res);
+      await throwForResponseError(res, 'Stream failed');
     }
 
     const reader = res.body.getReader();
@@ -134,16 +108,21 @@ function streamSSEWithBody(path, body, onEvent) {
   const controller = new AbortController();
 
   const done = (async () => {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (err) {
+      throw normalizeFetchException(err, 'Stream failed');
+    }
 
     if (!res.ok) {
-      await throwForResponseError(res);
+      await throwForResponseError(res, 'Stream failed');
     }
 
     const reader = res.body.getReader();
@@ -294,15 +273,20 @@ export const api = {
   extractText: async (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${API_BASE}/upload/extract-text`, {
-      method: 'POST',
-      credentials: 'include',
-      body: formData
-      // No Content-Type header — browser sets multipart boundary automatically
-    });
-    const data = await parseResponseBody(res);
-    if (!res.ok) throw new Error(uploadErrorMessage(data, res, 'Text extraction failed'));
-    return data;
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/upload/extract-text`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+        // No Content-Type header — browser sets multipart boundary automatically
+      });
+    } catch (err) {
+      throw normalizeFetchException(err, 'Text extraction failed');
+    }
+    if (!res.ok) await throwForResponseError(res, 'Text extraction failed');
+    const { parsed } = await parseResponseBody(res);
+    return parsed;
   },
   autoDescribe: (salesPageContent) => request('/upload/auto-describe', { method: 'POST', body: JSON.stringify({ sales_page_content: salesPageContent }) }),
   fetchSalesPageFromUrl: (url) => request('/upload/fetch-url', { method: 'POST', body: JSON.stringify({ url }) }),
@@ -333,15 +317,20 @@ export const api = {
     const formData = new FormData();
     formData.append('image', file);
     if (description) formData.append('description', description);
-    const res = await fetch(`${API_BASE}/projects/${projectId}/templates`, {
-      method: 'POST',
-      credentials: 'include',
-      body: formData,
-      signal
-    });
-    const data = await parseResponseBody(res);
-    if (!res.ok) throw new Error(uploadErrorMessage(data, res));
-    return data;
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/projects/${projectId}/templates`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+        signal
+      });
+    } catch (err) {
+      throw normalizeFetchException(err, 'Template upload failed');
+    }
+    if (!res.ok) await throwForResponseError(res, 'Template upload failed');
+    const { parsed } = await parseResponseBody(res);
+    return parsed;
   },
   updateTemplate: (projectId, imageId, descriptionOrFields) => {
     const body = typeof descriptionOrFields === 'object' && descriptionOrFields !== null
@@ -361,14 +350,19 @@ export const api = {
   uploadProductImage: async (projectId, file) => {
     const formData = new FormData();
     formData.append('image', file);
-    const res = await fetch(`${API_BASE}/projects/${projectId}/product-image`, {
-      method: 'POST',
-      credentials: 'include',
-      body: formData
-    });
-    const data = await parseResponseBody(res);
-    if (!res.ok) throw new Error(uploadErrorMessage(data, res));
-    return data;
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/projects/${projectId}/product-image`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+      });
+    } catch (err) {
+      throw normalizeFetchException(err, 'Product image upload failed');
+    }
+    if (!res.ok) await throwForResponseError(res, 'Product image upload failed');
+    const { parsed } = await parseResponseBody(res);
+    return parsed;
   },
   deleteProductImage: (projectId) =>
     request(`/projects/${projectId}/product-image`, { method: 'DELETE' }),
