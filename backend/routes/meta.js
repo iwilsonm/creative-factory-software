@@ -14,6 +14,8 @@ import {
   getProjectsWithExpiringMetaTokens,
   updateProject,
   getSetting,
+  getMetaMcpDiagnostic,
+  upsertMetaMcpDiagnostic,
   getUserByExternalId,
   convexClient,
   api,
@@ -35,6 +37,7 @@ import {
 } from '../services/metaApi.js';
 import {
   MCPReadUnavailableError,
+  checkMetaMcpReadAccess,
   getCampaignsWithInsightsViaMcp,
   getAdSetsWithInsightsViaMcp,
   getAdsWithInsightsViaMcp,
@@ -99,6 +102,165 @@ function sendMetaReadError(res, err) {
     });
   }
   return res.status(500).json({ error: err.message });
+}
+
+function sanitizeDiagnostic(row) {
+  if (!row) return null;
+  return {
+    status: row.status,
+    read_access: row.read_access,
+    posting_access: row.posting_access,
+    reason_code: row.reason_code,
+    user_message: row.user_message,
+    technical_details: row.technical_details || '',
+    checked_at: row.checked_at,
+    meta_account_id: row.meta_account_id,
+  };
+}
+
+function diagnosticResult({
+  project,
+  status,
+  readAccess,
+  postingAccess,
+  reasonCode,
+  userMessage,
+  technicalDetails = '',
+}) {
+  return {
+    project_id: project?.externalId,
+    meta_account_id: project?.meta_account_id || '',
+    status,
+    read_access: readAccess,
+    posting_access: postingAccess,
+    reason_code: reasonCode,
+    user_message: userMessage,
+    technical_details: technicalDetails,
+    checked_at: new Date().toISOString(),
+  };
+}
+
+async function persistDiagnostic(result) {
+  if (!result?.project_id || !result?.meta_account_id) return result;
+  await upsertMetaMcpDiagnostic(result);
+  return result;
+}
+
+async function runMcpAccessDiagnostic(projectId) {
+  const project = await getProjectRawForMeta(projectId);
+  if (!project) {
+    const err = new Error('Project not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (!project.meta_access_token) {
+    return diagnosticResult({
+      project,
+      status: 'setup_issue',
+      readAccess: 'not_available',
+      postingAccess: 'not_available',
+      reasonCode: 'NO_META_CONNECTION',
+      userMessage: 'Connect Meta before checking MCP access.',
+    });
+  }
+
+  if (!project.meta_account_id) {
+    return diagnosticResult({
+      project,
+      status: 'setup_issue',
+      readAccess: 'not_available',
+      postingAccess: 'not_available',
+      reasonCode: 'NO_AD_ACCOUNT',
+      userMessage: 'Select the Meta ad account this project should use before checking MCP access.',
+    });
+  }
+
+  if (project.meta_integration_path === 'mcp' && !project.meta_page_id) {
+    return await persistDiagnostic(diagnosticResult({
+      project,
+      status: 'setup_issue',
+      readAccess: 'not_checked',
+      postingAccess: 'not_available',
+      reasonCode: 'NO_PAGE',
+      userMessage: 'Select a Facebook Page before checking MCP posting access.',
+    }));
+  }
+
+  const anthropicApiKey = await getSetting('anthropic_api_key');
+  if (!anthropicApiKey) {
+    return await persistDiagnostic(diagnosticResult({
+      project,
+      status: 'setup_issue',
+      readAccess: 'not_available',
+      postingAccess: project.meta_page_id ? 'not_available' : 'not_checked',
+      reasonCode: 'NO_ANTHROPIC_KEY',
+      userMessage: 'Add an Anthropic API key in global Settings before using Meta MCP.',
+    }));
+  }
+
+  try {
+    await checkMetaMcpReadAccess({
+      anthropicApiKey,
+      metaToken: project.meta_access_token,
+      accountId: project.meta_account_id,
+      opts: { datePreset: 'last_7d' },
+      projectId,
+    });
+    return await persistDiagnostic(diagnosticResult({
+      project,
+      status: 'available',
+      readAccess: 'available',
+      postingAccess: project.meta_page_id ? 'available' : 'not_checked',
+      reasonCode: 'MCP_AVAILABLE',
+      userMessage: project.meta_page_id
+        ? 'Meta MCP access appears available for this selected ad account.'
+        : 'Meta MCP read access appears available. Select a Facebook Page before posting through MCP.',
+    }));
+  } catch (err) {
+    if (isTokenInvalidError(err)) {
+      return await persistDiagnostic(diagnosticResult({
+        project,
+        status: 'setup_issue',
+        readAccess: 'not_available',
+        postingAccess: 'not_available',
+        reasonCode: 'TOKEN_EXPIRED',
+        userMessage: 'The Meta token expired or was revoked. Reconnect Meta, then check MCP access again.',
+        technicalDetails: err.message,
+      }));
+    }
+    if (err instanceof MCPNotAuthorizedError || err.code === 'MCP_NOT_AUTHORIZED') {
+      return await persistDiagnostic(diagnosticResult({
+        project,
+        status: 'not_available',
+        readAccess: 'not_available',
+        postingAccess: 'not_available',
+        reasonCode: 'META_MCP_NOT_ENABLED',
+        userMessage: 'Meta did not authorize MCP for this selected ad account/app. API reads can still work, but MCP is not available for this account right now.',
+        technicalDetails: err.message,
+      }));
+    }
+    if (err instanceof MCPReadUnavailableError || err.code === 'MCP_READ_UNAVAILABLE') {
+      return await persistDiagnostic(diagnosticResult({
+        project,
+        status: 'not_available',
+        readAccess: 'not_available',
+        postingAccess: 'not_checked',
+        reasonCode: 'MCP_READ_UNAVAILABLE',
+        userMessage: 'Meta MCP connected, but the read tools needed by Analytics/Observation are not available for this account/app.',
+        technicalDetails: err.message,
+      }));
+    }
+    return await persistDiagnostic(diagnosticResult({
+      project,
+      status: 'unknown',
+      readAccess: 'not_checked',
+      postingAccess: 'not_checked',
+      reasonCode: 'UNKNOWN_MCP_ERROR',
+      userMessage: 'The MCP access check hit an unexpected connector error. Try again, or use API reads while access is being confirmed.',
+      technicalDetails: err.message,
+    }));
+  }
 }
 
 async function getMetaAppCreds() {
@@ -248,6 +410,9 @@ router.get('/connection-status', requireAuth, requireRole('admin', 'manager'), a
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
     const project = await getProject(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+    const diagnostic = project.meta_account_id
+      ? await getMetaMcpDiagnostic(projectId, project.meta_account_id)
+      : null;
     res.json({
       connected: !!project.meta_connected,
       user_id: project.meta_user_id,
@@ -263,6 +428,7 @@ router.get('/connection-status', requireAuth, requireRole('admin', 'manager'), a
       // Phase 2B
       page_id: project.meta_page_id,
       page_name: project.meta_page_name,
+      mcp_access: sanitizeDiagnostic(diagnostic),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -400,6 +566,17 @@ router.post('/read-path', requireAuth, requireRole('admin', 'manager'), async (r
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/mcp-access/check', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { projectId } = req.body || {};
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    const result = await runMcpAccessDiagnostic(projectId);
+    res.json(sanitizeDiagnostic(result));
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 

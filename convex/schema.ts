@@ -7,6 +7,24 @@ export default defineSchema({
     value: v.string(),
   }).index("by_key", ["key"]),
 
+  meta_mcp_diagnostics: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    meta_account_id: v.string(),
+    status: v.string(),
+    read_access: v.string(),
+    posting_access: v.string(),
+    reason_code: v.string(),
+    user_message: v.string(),
+    technical_details: v.optional(v.string()),
+    checked_at: v.string(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_account", ["project_id", "meta_account_id"]),
+
   projects: defineTable({
     externalId: v.string(),
     name: v.string(),

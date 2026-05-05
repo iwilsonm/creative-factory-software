@@ -24,6 +24,7 @@ import type * as flexAds from "../flexAds.js";
 import type * as foundationalDocs from "../foundationalDocs.js";
 import type * as headlineHistory from "../headlineHistory.js";
 import type * as inspirationImages from "../inspirationImages.js";
+import type * as metaMcpDiagnostics from "../metaMcpDiagnostics.js";
 import type * as migrations from "../migrations.js";
 import type * as observationResults from "../observationResults.js";
 import type * as observationSnapshots from "../observationSnapshots.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   foundationalDocs: typeof foundationalDocs;
   headlineHistory: typeof headlineHistory;
   inspirationImages: typeof inspirationImages;
+  metaMcpDiagnostics: typeof metaMcpDiagnostics;
   migrations: typeof migrations;
   observationResults: typeof observationResults;
   observationSnapshots: typeof observationSnapshots;

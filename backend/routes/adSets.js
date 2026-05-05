@@ -291,7 +291,10 @@ router.post('/:projectId/ad-sets/:adSetId/post-to-meta', requireRole('admin', 'm
       : err.code === 'WRONG_PROJECT' ? 403
       : err.code === 'MCP_NOT_AUTHORIZED' ? 403
       : 500;
-    res.status(status).json({ error: err.message, code: err.code || null });
+    const message = err.code === 'MCP_NOT_AUTHORIZED'
+      ? 'Meta did not authorize MCP for this selected ad account/app. Go to Project Settings → Meta and run Check MCP Access, or switch Posting Path if you intentionally want another path.'
+      : err.message;
+    res.status(status).json({ error: message, code: err.code || null });
   }
 });
 
@@ -547,7 +550,10 @@ router.post('/:projectId/staging/adsets/:adSetId/post-to-meta', requireRole('adm
       : err.code === 'WRONG_PROJECT' ? 403
       : err.code === 'MCP_NOT_AUTHORIZED' ? 403
       : 500;
-    res.status(status).json({ error: err.message, code: err.code || null });
+    const message = err.code === 'MCP_NOT_AUTHORIZED'
+      ? 'Meta did not authorize MCP for this selected ad account/app. Go to Project Settings → Meta and run Check MCP Access, or switch Posting Path if you intentionally want another path.'
+      : err.message;
+    res.status(status).json({ error: message, code: err.code || null });
   }
 });
 

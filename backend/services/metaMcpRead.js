@@ -219,3 +219,12 @@ export async function getAdSetsWithInsightsViaMcp(args) {
 export async function getAdsWithInsightsViaMcp(args) {
   return await runMcpRead({ ...args, operation: 'list ads with insights' });
 }
+
+export async function checkMetaMcpReadAccess(args) {
+  await runMcpRead({
+    ...args,
+    operation: 'check account-level MCP read access by listing up to one campaign',
+    opts: { ...(args?.opts || {}), datePreset: args?.opts?.datePreset || 'last_7d' },
+  });
+  return true;
+}

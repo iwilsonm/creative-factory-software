@@ -271,6 +271,31 @@ export async function updateProject(id, fields) {
   invalidateQueryCache('projects');
 }
 
+export async function getMetaMcpDiagnostic(projectId, metaAccountId) {
+  if (!projectId || !metaAccountId) return null;
+  return await queryWithRetry(api.metaMcpDiagnostics.getByProjectAccount, {
+    projectId,
+    metaAccountId,
+  });
+}
+
+export async function upsertMetaMcpDiagnostic(entry) {
+  const externalId = entry.externalId || uuidv4();
+  await mutationWithRetry(api.metaMcpDiagnostics.upsert, {
+    externalId,
+    project_id: entry.project_id,
+    meta_account_id: entry.meta_account_id,
+    status: entry.status,
+    read_access: entry.read_access,
+    posting_access: entry.posting_access,
+    reason_code: entry.reason_code,
+    user_message: entry.user_message,
+    ...(entry.technical_details !== undefined ? { technical_details: entry.technical_details } : {}),
+    checked_at: entry.checked_at,
+  });
+  return externalId;
+}
+
 export async function deleteProject(id) {
   await mutationWithRetry(api.projects.remove, { externalId: id });
   invalidateQueryCache('projects');

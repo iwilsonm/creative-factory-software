@@ -466,6 +466,8 @@ export const api = {
     request('/meta/integration-path', { method: 'POST', body: JSON.stringify({ projectId, path }) }),
   setMetaReadPath: (projectId, path) =>
     request('/meta/read-path', { method: 'POST', body: JSON.stringify({ projectId, path }) }),
+  checkMetaMcpAccess: (projectId) =>
+    request('/meta/mcp-access/check', { method: 'POST', body: JSON.stringify({ projectId }) }),
   disconnectMeta: (projectId) =>
     request('/meta/disconnect', { method: 'POST', body: JSON.stringify({ projectId }) }),
   getMetaCampaigns: (projectId) =>

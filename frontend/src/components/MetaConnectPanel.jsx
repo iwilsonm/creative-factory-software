@@ -19,7 +19,63 @@ export default function MetaConnectPanel({ projectId }) {
   const [pages, setPages] = useState([]);
   const [pagesLoading, setPagesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [checkingMcp, setCheckingMcp] = useState(false);
   const [error, setError] = useState('');
+
+  const mcpAccess = status?.mcp_access || null;
+  const currentReadPath = status?.read_path || 'api';
+  const currentPostingPath = status?.posting_path || status?.integration_path || 'mcp';
+  const mcpSelected = currentReadPath === 'mcp' || currentPostingPath === 'mcp';
+
+  const mcpStatusView = (() => {
+    if (!status?.account_id) {
+      return {
+        label: 'Select an ad account',
+        tone: 'neutral',
+        message: 'Select the Meta ad account this project should use before checking MCP access.',
+      };
+    }
+    if (!mcpAccess || mcpAccess.meta_account_id !== status.account_id) {
+      return {
+        label: 'Not checked for this account yet',
+        tone: mcpSelected ? 'warning' : 'neutral',
+        message: 'MCP availability can vary by Meta ad account. Check this selected account before relying on MCP.',
+      };
+    }
+    if (mcpAccess.status === 'available') {
+      return {
+        label: 'MCP available',
+        tone: 'success',
+        message: mcpAccess.user_message || 'Meta MCP access appears available for this selected ad account.',
+      };
+    }
+    if (mcpAccess.status === 'not_available') {
+      return {
+        label: 'Not available for this ad account',
+        tone: 'danger',
+        message: mcpAccess.user_message || 'Meta did not authorize MCP for this selected ad account/app.',
+      };
+    }
+    if (mcpAccess.status === 'setup_issue') {
+      return {
+        label: 'Setup issue',
+        tone: 'warning',
+        message: mcpAccess.user_message || 'Finish Meta/MCP setup before checking access.',
+      };
+    }
+    return {
+      label: 'Unknown MCP status',
+      tone: 'warning',
+      message: mcpAccess.user_message || 'The last MCP check did not return a clear status.',
+    };
+  })();
+
+  const mcpToneClasses = {
+    success: 'border-ed-green/30 bg-ed-green/10 text-ed-green',
+    warning: 'border-orange-200 bg-orange-50 text-orange-800',
+    danger: 'border-ed-rust/25 bg-ed-rust/10 text-ed-rust',
+    neutral: 'border-ed-line bg-cream text-ed-ink2',
+  };
 
   const loadStatus = useCallback(async () => {
     try {
@@ -165,6 +221,13 @@ export default function MetaConnectPanel({ projectId }) {
         accountName: acct.name,
         businessId: acct.business?.id,
       });
+      setStatus((prev) => prev ? {
+        ...prev,
+        account_id: acct.id,
+        account_name: acct.name,
+        business_id: acct.business?.id || null,
+        mcp_access: null,
+      } : prev);
       toast.success(`Selected ${acct.name}`);
       await loadStatus();
     } catch (err) {
@@ -212,6 +275,26 @@ export default function MetaConnectPanel({ projectId }) {
       toast.error(err?.message || 'Could not change read path');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleCheckMcpAccess = async () => {
+    setCheckingMcp(true);
+    setError('');
+    try {
+      const result = await api.checkMetaMcpAccess(projectId);
+      setStatus((prev) => prev ? { ...prev, mcp_access: result } : prev);
+      if (result?.status === 'available') {
+        toast.success('MCP access confirmed for this account');
+      } else if (result?.status === 'not_available') {
+        toast.error('MCP is not available for this account');
+      } else {
+        toast.error(result?.user_message || 'MCP access check needs setup');
+      }
+    } catch (err) {
+      toast.error(err?.message || 'Could not check MCP access');
+    } finally {
+      setCheckingMcp(false);
     }
   };
 
@@ -361,6 +444,43 @@ export default function MetaConnectPanel({ projectId }) {
             )}
           </div>
 
+          {/* MCP access diagnostics */}
+          <div className="border-t border-cream pt-4">
+            <div className="text-xs font-semibold text-ed-ink2 mb-1 flex items-center gap-1">
+              MCP Access
+              <InfoTooltip text="Meta controls MCP availability by account/business/app. Some ad accounts may not be enabled yet, even when API reads work." position="right" />
+            </div>
+            <div className={`rounded-lg border p-3 text-xs ${mcpToneClasses[mcpStatusView.tone] || mcpToneClasses.neutral}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold">{mcpStatusView.label}</div>
+                  <p className="mt-1 leading-relaxed">{mcpStatusView.message}</p>
+                  {mcpAccess?.checked_at && mcpAccess?.meta_account_id === status.account_id && (
+                    <p className="mt-1 opacity-80">
+                      Last checked {new Date(mcpAccess.checked_at).toLocaleString()} for {mcpAccess.meta_account_id}.
+                    </p>
+                  )}
+                  {mcpAccess?.reason_code && mcpAccess?.meta_account_id === status.account_id && (
+                    <p className="mt-1 opacity-80">Reason: {mcpAccess.reason_code}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCheckMcpAccess}
+                  disabled={busy || checkingMcp || !status.account_id}
+                  className="shrink-0 px-3 py-1.5 rounded-[7px] text-[12px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+                >
+                  {checkingMcp ? 'Checking...' : 'Check MCP Access'}
+                </button>
+              </div>
+            </div>
+            {mcpSelected && mcpStatusView.tone !== 'success' && (
+              <div className="mt-2 text-xs text-orange-800 bg-orange-50 border border-orange-200 p-2 rounded">
+                MCP is selected for this project, but access is not confirmed for the currently selected ad account.
+              </div>
+            )}
+          </div>
+
           {/* Read path toggle */}
           <div className="border-t border-cream pt-4">
             <div className="text-xs font-semibold text-ed-ink2 mb-1 flex items-center gap-1">
@@ -374,21 +494,21 @@ export default function MetaConnectPanel({ projectId }) {
               <button
                 type="button"
                 onClick={() => handleToggleReadPath('api')}
-                disabled={busy || (status.read_path || 'api') === 'api'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${(status.read_path || 'api') === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                disabled={busy || currentReadPath === 'api'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${currentReadPath === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 API — current stable path
               </button>
               <button
                 type="button"
                 onClick={() => handleToggleReadPath('mcp')}
-                disabled={busy || (status.read_path || 'api') === 'mcp'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${(status.read_path || 'api') === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                disabled={busy || currentReadPath === 'mcp'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${currentReadPath === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 MCP — connector reads
               </button>
             </div>
-            {(status.read_path || 'api') === 'mcp' && (
+            {currentReadPath === 'mcp' && (
               <div className="mt-2 text-xs text-ed-ink2 bg-cream border border-ed-line p-2 rounded">
                 MCP read mode will not silently fall back to API. If Meta's MCP server does not authorize read tools, Analytics and Observation will show a clear MCP read error.
               </div>
@@ -408,28 +528,28 @@ export default function MetaConnectPanel({ projectId }) {
               <button
                 type="button"
                 onClick={() => handleTogglePostingPath('mcp')}
-                disabled={busy || (status.posting_path || status.integration_path || 'mcp') === 'mcp'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${(status.posting_path || status.integration_path || 'mcp') === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                disabled={busy || currentPostingPath === 'mcp'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${currentPostingPath === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 MCP — recommended
               </button>
               <button
                 type="button"
                 onClick={() => handleTogglePostingPath('api')}
-                disabled={busy || (status.posting_path || status.integration_path || 'mcp') === 'api'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${(status.posting_path || status.integration_path || 'mcp') === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                disabled={busy || currentPostingPath === 'api'}
+                className={`flex-1 text-sm px-3 py-2 rounded ${currentPostingPath === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 Direct API
               </button>
             </div>
-            {(status.posting_path || status.integration_path || 'mcp') === 'api' && (
+            {currentPostingPath === 'api' && (
               <div className="mt-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 p-2 rounded">
                 <strong>Warning:</strong> Direct API posting can carry account risk. Use the connector path unless you intentionally want the faster direct route.
               </div>
             )}
-            {(status.read_path || 'api') !== (status.posting_path || status.integration_path || 'mcp') && (
+            {currentReadPath !== currentPostingPath && (
               <div className="mt-2 text-xs text-ed-ink2 bg-cream border border-ed-line p-2 rounded">
-                Reads are using {(status.read_path || 'api').toUpperCase()}; posting is using {(status.posting_path || status.integration_path || 'mcp').toUpperCase()}.
+                Reads are using {currentReadPath.toUpperCase()}; posting is using {currentPostingPath.toUpperCase()}.
               </div>
             )}
           </div>
