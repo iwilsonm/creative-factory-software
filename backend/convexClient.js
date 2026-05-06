@@ -18,7 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './services/retry.js';
 import { ensureArray } from './utils/collections.js';
 import { compactConvexWrite } from './services/adSetPlanner.js';
-import { buildStaleAdRepairUpdate, getAdProgressTime } from './utils/adGenerationRecovery.js';
+import { buildStaleAdRepairUpdate, getAdProgressTime, isSingleAdGenerationRecoveryCandidate } from './utils/adGenerationRecovery.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -617,8 +617,7 @@ export async function markStaleAdsAsFailed(projectId, opts = {}) {
   let repaired = 0;
   for (const ad of candidates) {
     if (repaired >= maxRepairs) break;
-    // Status precondition: only act on ads still in generating state.
-    if (ad.status !== 'generating_copy' && ad.status !== 'generating_image') continue;
+    if (!isSingleAdGenerationRecoveryCandidate(ad)) continue;
     const ts = getAdProgressTime(ad);
     if (!Number.isFinite(ts) || ts > cutoff) continue;
     const update = buildStaleAdRepairUpdate(ad);

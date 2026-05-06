@@ -1,5 +1,5 @@
 export function buildStaleAdRepairUpdate(ad, nowIso = new Date().toISOString()) {
-  if (!ad || (ad.status !== 'generating_copy' && ad.status !== 'generating_image')) {
+  if (!isSingleAdGenerationRecoveryCandidate(ad)) {
     return null;
   }
 
@@ -21,6 +21,17 @@ export function buildStaleAdRepairUpdate(ad, nowIso = new Date().toISOString()) 
     failure_stage: isImageStage ? 'stale_generating_image_timeout' : 'stale_generating_copy_timeout',
     last_progress_at: nowIso,
   };
+}
+
+export function isSingleAdGenerationRecoveryCandidate(ad) {
+  if (!ad || (ad.status !== 'generating_copy' && ad.status !== 'generating_image')) {
+    return false;
+  }
+
+  // Batch jobs and Creative Director rows have separate worker recovery. This
+  // utility is only for live single Ad Studio requests that can be killed by
+  // the request gateway.
+  return !(ad.batch_job_id || ad.gemini_batch_job || ad.auto_generated);
 }
 
 export function getAdProgressTime(ad) {

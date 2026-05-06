@@ -2,10 +2,11 @@ import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, markStaleAdsAsFailed, uploadBuffer, setProjectProductImage, convexClient, api } from '../convexClient.js';
 
-// Vercel function maxDuration for api/index.js is 300s. Give the live request
-// a buffer before treating the row as a zombie so active UI progress does not
-// disappear right at the gateway cutoff.
-const STUCK_ADS_THRESHOLD_MIN = 8;
+// Vercel function maxDuration for api/index.js is 300s. If a single-ad
+// generation has not written progress for this long, the live request is
+// already at or past the gateway cutoff and the UI needs a truthful terminal
+// state instead of a silent spinner.
+const STUCK_ADS_THRESHOLD_MIN = 5;
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit, assertTemplateTagHasActiveTemplates, normalizeTemplateTag } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat } from '../services/openai.js';

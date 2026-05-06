@@ -72,6 +72,7 @@ function streamSSE(path, onEvent) {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let sawDone = false;
 
     while (true) {
       const { done: readerDone, value } = await reader.read();
@@ -84,12 +85,19 @@ function streamSSE(path, onEvent) {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
-          if (data === '[DONE]') return;
+          if (data === '[DONE]') {
+            sawDone = true;
+            return;
+          }
           try {
             onEvent(JSON.parse(data));
           } catch {}
         }
       }
+    }
+
+    if (!sawDone) {
+      throw new Error('The generation stream ended before the server confirmed completion. The app will keep checking the saved ad status.');
     }
   })();
 
@@ -128,6 +136,7 @@ function streamSSEWithBody(path, body, onEvent) {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let sawDone = false;
 
     while (true) {
       const { done: readerDone, value } = await reader.read();
@@ -140,12 +149,19 @@ function streamSSEWithBody(path, body, onEvent) {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
-          if (data === '[DONE]') return;
+          if (data === '[DONE]') {
+            sawDone = true;
+            return;
+          }
           try {
             onEvent(JSON.parse(data));
           } catch {}
         }
       }
+    }
+
+    if (!sawDone) {
+      throw new Error('The generation stream ended before the server confirmed completion. The app will keep checking the saved ad status.');
     }
   })();
 

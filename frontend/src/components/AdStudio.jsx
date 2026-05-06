@@ -386,7 +386,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     };
   }, [viewAd]);
 
-  const STUCK_THRESHOLD_MS = 8 * 60 * 1000;
+  const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 
   const syncInProgressAds = useCallback(async ({ cancelledRef } = {}) => {
     try {
@@ -1247,7 +1247,19 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         }, 5000);
       })
       .catch(err => {
-        updateGen(genId, { error: err.message, status: null });
+        setActiveGens(prev => prev.map(g => {
+          if (g.id !== genId) return g;
+          if (g.adExternalId) {
+            return {
+              ...g,
+              status: g.status || 'generating_image',
+              message: 'Connection ended; checking saved ad status...',
+              warning: err.message,
+              progress: Math.max(g.progress || 0, 80),
+            };
+          }
+          return { ...g, error: err.message, status: null };
+        }));
       });
     })();
     singleGenerationQueueRef.current = queuedRun.catch(() => {});
@@ -1614,9 +1626,131 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         }, 5000);
       })
       .catch(err => {
-        updateGen(genId, { error: err.message, status: null });
+        setActiveGens(prev => prev.map(g => {
+          if (g.id !== genId) return g;
+          if (g.adExternalId) {
+            return {
+              ...g,
+              status: g.status || 'generating_image',
+              message: 'Connection ended; checking saved ad status...',
+              warning: err.message,
+              progress: Math.max(g.progress || 0, 80),
+            };
+          }
+          return { ...g, error: err.message, status: null };
+        }));
       });
     })();
+    singleGenerationQueueRef.current = queuedRun.catch(() => {});
+    return queuedRun;
+  };
+
+  const handleRetryImageFromSavedPrompt = async (ad, e) => {
+    if (e) e.stopPropagation();
+    if (viewAd) setViewAd(null);
+
+    let sourceAd;
+    try {
+      sourceAd = await hydrateAd(ad);
+    } catch (err) {
+      toast.error(err.message || 'Failed to load the saved prompt.');
+      return;
+    }
+
+    const sourcePrompt = getEditablePrompt(sourceAd);
+    if (!sourcePrompt) {
+      toast.error('This failed ad does not have a saved image prompt, so it cannot be repaired automatically.');
+      return;
+    }
+
+    const genId = ++genIdCounter.current;
+    const genLabel = sourceAd.angle || sourceAd.aspect_ratio || 'Image retry';
+    const isWaitingForTurn = activeGenCount > 0;
+
+    setActiveGens(prev => [...prev, {
+      id: genId,
+      label: genLabel,
+      status: isWaitingForTurn ? 'queued' : 'preparing',
+      message: isWaitingForTurn ? 'Waiting for the current ad to finish...' : 'Retrying image from saved prompt...',
+      error: '',
+      warning: '',
+      progress: isWaitingForTurn ? 0 : 1,
+      startTime: Date.now(),
+    }]);
+
+    toast.info(
+      <span>
+        Retrying image from the saved prompt{' '}
+        <button onClick={scrollToQueue} className="underline font-semibold hover:text-ed-accent/80 transition-colors">View Queue ↓</button>
+      </span>
+    );
+
+    const previousGeneration = singleGenerationQueueRef.current.catch(() => {});
+    const queuedRun = (async () => {
+      await previousGeneration;
+      updateGen(genId, { status: 'generating_image', message: 'Retrying image from saved prompt...', progress: 10 });
+
+      const handleEvent = (event) => {
+        if (event.type === 'status') {
+          if (event.adId) {
+            setActiveGens(prev => prev
+              .filter(g => !(g.source === 'restored' && g.adExternalId === event.adId))
+              .map(g => g.id === genId
+                ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse' }
+                : g
+              )
+            );
+          } else {
+            updateGen(genId, { status: event.status, message: event.message, progress: event.progress || 0 });
+          }
+        } else if (event.type === 'warning') {
+          updateGen(genId, { warning: event.message });
+        } else if (event.type === 'complete') {
+          handleGenerationCompleteEvent(genId, event.ad, 'Image retry completed!');
+        } else if (event.type === 'error') {
+          updateGen(genId, { error: event.error, status: null });
+        }
+      };
+
+      const stream = api.regenerateImage(projectId, {
+        image_prompt: sourcePrompt,
+        aspect_ratio: sourceAd.aspect_ratio || '1:1',
+        image_model: sourceAd.image_model || imageModel,
+        parent_ad_id: sourceAd.id,
+        angle: sourceAd.angle || undefined,
+        headline: sourceAd.headline || undefined,
+        body_copy: sourceAd.body_copy || undefined,
+      }, handleEvent);
+
+      await stream.done
+        .then(() => {
+          setTimeout(() => {
+            setActiveGens(prev => {
+              const gen = prev.find(g => g.id === genId);
+              if (gen && gen.status === 'completed' && !gen.error) {
+                return prev.filter(g => g.id !== genId);
+              }
+              return prev;
+            });
+          }, 5000);
+        })
+        .catch(err => {
+          setActiveGens(prev => prev.map(g => {
+            if (g.id !== genId) return g;
+            if (g.adExternalId) {
+              return {
+                ...g,
+                status: g.status || 'generating_image',
+                message: 'Connection ended; checking saved ad status...',
+                warning: err.message,
+                progress: Math.max(g.progress || 0, 80),
+              };
+            }
+            return { ...g, error: err.message, status: null };
+          }));
+        });
+    })();
+
     singleGenerationQueueRef.current = queuedRun.catch(() => {});
     return queuedRun;
   };
@@ -3362,6 +3496,14 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                       {ad.error_message}
                     </p>
                   )}
+                  {ad.status === 'failed' && ad.has_edit_prompt && (
+                    <button
+                      onClick={(e) => handleRetryImageFromSavedPrompt(ad, e)}
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-ed-accent hover:text-ed-accent/80 transition-colors"
+                    >
+                      Retry image from saved prompt
+                    </button>
+                  )}
                   {/* Tags */}
                   <div className="flex items-center gap-1 mt-1 flex-wrap">
                     {(ad.tags || []).slice(0, 3).map(tag => (
@@ -3517,6 +3659,15 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" /></svg>
                     </button>
                   </>
+                )}
+                {ad.status === 'failed' && ad.has_edit_prompt && (
+                  <button
+                    onClick={(e) => handleRetryImageFromSavedPrompt(ad, e)}
+                    className="text-[11px] font-semibold text-ed-accent hover:text-ed-accent/80 transition-colors flex-shrink-0"
+                    title="Retry image from saved prompt"
+                  >
+                    Retry
+                  </button>
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(ad.id); }}
