@@ -177,6 +177,7 @@ const _requestCache = new Map();
 function _getCacheTTL(path) {
   if (path === '/auth/session') return 5 * 60 * 1000;    // 5 min
   if (path === '/projects/options') return 2 * 60 * 1000; // 2 min
+  if (path === '/projects/archived') return 2 * 60 * 1000; // 2 min
   if (path === '/projects') return 2 * 60 * 1000;         // 2 min
   if (path.match(/^\/projects\/[^/]+$/)) return 2 * 60 * 1000; // 2 min
   if (path === '/conductor/pipeline-status') return 30 * 1000; // 30s
@@ -217,7 +218,7 @@ function invalidateDeploymentCache(projectId = null) {
 
 // Exported for use by components after SSE completions (e.g., doc generation)
 export function invalidateProjectCache(projectId) {
-  invalidateCache('/projects', `/projects/${projectId}`, `/projects/${projectId}/stats`);
+  invalidateCache('/projects', '/projects/archived', '/projects/options', `/projects/${projectId}`, `/projects/${projectId}/stats`);
 }
 
 // Phase 6.20 — DEPRECATED-warn tracking for the legacy flex_ad adapter.
@@ -250,13 +251,17 @@ export const api = {
   // Projects
   getProjects: () =>
     cachedRequest('/projects').then(data => normalizeArrayResponse(data, 'projects', 'api.getProjects.projects').projects),
+  getArchivedProjects: () =>
+    cachedRequest('/projects/archived').then(data => normalizeArrayResponse(data, 'projects', 'api.getArchivedProjects.projects').projects),
   getProjectOptions: () =>
     cachedRequest('/projects/options').then(data => normalizeArrayResponse(data, 'projects', 'api.getProjectOptions.projects')),
   getProject: (id) => cachedRequest(`/projects/${id}`),
   getProjectStats: (id) => request(`/projects/${id}/stats`),
   createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', '/projects/options'); return r; }),
   updateProject: (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', '/projects/options', `/projects/${id}`); return r; }),
-  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }).then(r => { invalidateCache('/projects', '/projects/options', `/projects/${id}`); return r; }),
+  archiveProject: (id) => request(`/projects/${id}/archive`, { method: 'PATCH' }).then(r => { invalidateProjectCache(id); return r; }),
+  unarchiveProject: (id) => request(`/projects/${id}/unarchive`, { method: 'PATCH' }).then(r => { invalidateProjectCache(id); return r; }),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }).then(r => { invalidateProjectCache(id); return r; }),
 
   // Foundational Documents
   getDocs: (projectId) => request(`/projects/${projectId}/docs`),

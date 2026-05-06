@@ -8,6 +8,7 @@ type ProjectRecord = {
   brand_name?: string;
   niche?: string;
   status?: string;
+  archived_at?: string | null;
   template_seeding_status?: string;
   template_seeding_error?: string;
   docCount?: number;
@@ -45,6 +46,10 @@ function getStoredStats(project: ProjectRecord): ProjectStats {
   };
 }
 
+function isArchivedProject(project: ProjectRecord) {
+  return typeof project.archived_at === "string" && project.archived_at.trim().length > 0;
+}
+
 async function countProjectAssets(ctx: any, projectId: string): Promise<ProjectStats> {
   const docs = await ctx.db
     .query("foundational_docs")
@@ -77,6 +82,7 @@ function toProjectSummary(project: ProjectRecord, stats: ProjectStats) {
     brand_name: project.brand_name,
     niche: project.niche,
     status: project.status ?? "setup",
+    archived_at: project.archived_at ?? null,
     template_seeding_status: project.template_seeding_status ?? "complete",
     template_seeding_error: project.template_seeding_error ?? "",
     ...stats,
@@ -144,7 +150,8 @@ export const getByExternalId = query({
 export const getAll = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("projects").order("desc").collect();
+    const projects = await ctx.db.query("projects").order("desc").collect();
+    return projects.filter((project) => !isArchivedProject(project));
   },
 });
 
@@ -198,6 +205,7 @@ export const update = mutation({
     meta_page_name: v.optional(v.string()),
     // Phase 3 — account currency cached from Meta
     meta_account_currency: v.optional(v.string()),
+    archived_at: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db
@@ -226,7 +234,11 @@ export const remove = mutation({
       .first();
     if (!project) throw new Error("Project not found");
 
-    await ctx.db.delete(project._id);
+    const now = new Date().toISOString();
+    await ctx.db.patch(project._id, {
+      archived_at: now,
+      updated_at: now,
+    });
   },
 });
 
@@ -271,9 +283,27 @@ export const getSummaries = query({
   args: {},
   handler: async (ctx) => {
     const projects = await ctx.db.query("projects").order("desc").collect();
+    const activeProjects = projects.filter((project) => !isArchivedProject(project));
 
     return await Promise.all(
-      projects.map(async (project) => {
+      activeProjects.map(async (project) => {
+        const stats = await getProjectStatsForRecord(ctx, project);
+        return toProjectSummary(project, stats);
+      })
+    );
+  },
+});
+
+export const getArchivedSummaries = query({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").collect();
+    const archivedProjects = projects
+      .filter(isArchivedProject)
+      .sort((a, b) => String(b.archived_at || "").localeCompare(String(a.archived_at || "")));
+
+    return await Promise.all(
+      archivedProjects.map(async (project) => {
         const stats = await getProjectStatsForRecord(ctx, project);
         return toProjectSummary(project, stats);
       })
@@ -285,12 +315,13 @@ export const getOptions = query({
   args: {},
   handler: async (ctx) => {
     const projects = await ctx.db.query("projects").order("desc").collect();
-    return projects.map((project) => ({
+    return projects.filter((project) => !isArchivedProject(project)).map((project) => ({
       externalId: project.externalId,
       name: project.name,
       brand_name: project.brand_name,
       displayName: project.brand_name || project.name,
       status: project.status ?? "setup",
+      archived_at: project.archived_at ?? null,
       template_seeding_status: project.template_seeding_status ?? "complete",
       template_seeding_error: project.template_seeding_error ?? "",
     }));
@@ -302,8 +333,9 @@ export const getAllWithStats = query({
   args: {},
   handler: async (ctx) => {
     const projects = await ctx.db.query("projects").order("desc").collect();
+    const activeProjects = projects.filter((project) => !isArchivedProject(project));
     return Promise.all(
-      projects.map(async (project) => {
+      activeProjects.map(async (project) => {
         const stats = await getProjectStatsForRecord(ctx, project);
         return {
           ...project,
@@ -346,6 +378,7 @@ export const getWithExpiringMetaTokens = query({
     const projects = await ctx.db.query("projects").collect();
     return projects
       .filter((p) =>
+        !isArchivedProject(p) &&
         !!p.meta_access_token &&
         typeof p.meta_token_expires_at === "number" &&
         p.meta_token_expires_at <= cutoff

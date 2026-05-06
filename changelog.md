@@ -1,5 +1,56 @@
 # Creative Factory — Changelog
 
+## 2026-05-06 — Add reversible project archive flow
+
+**Feature**
+- Added the ability to remove a project from the All Projects page without destroying its data.
+- The user-facing "Delete" action now opens a centered confirmation dialog that asks: "Are you sure you want to delete this project?"
+- Confirming moves the project into an **Archived Projects** view where it can be restored with **Unarchive**.
+
+**Cause**
+- The app previously exposed a project delete path that hard-deleted the project row. That conflicted with the current product requirement: deleted projects should remain recoverable and keep their child ads, batches, foundational documents, templates, and other project-scoped data.
+
+**Fix**
+- Added `projects.archived_at` as an optional ISO timestamp. `null` / unset means active; a timestamp means archived.
+- Default project list and project options now return only active projects.
+- Added a separate archived-project query and API route sorted by `archived_at` descending.
+- Added reversible archive/unarchive helpers and endpoints:
+  - `PATCH /api/projects/:id/archive`
+  - `PATCH /api/projects/:id/unarchive`
+- Converted the existing `DELETE /api/projects/:id` route to soft-archive semantics for compatibility; it no longer hard-deletes.
+- Updated All Projects UI with:
+  - active/archived view toggle,
+  - delete/archive action on active cards,
+  - portal-based confirmation dialog,
+  - unarchive action on archived cards.
+- Updated Project Detail delete copy to archive semantics so it no longer claims permanent deletion.
+- Added route tests covering active vs archived lists, archive/unarchive round-trip behavior, and the legacy delete route mapping to archive without touching child data.
+
+**Files modified**
+- `convex/schema.ts`
+- `convex/projects.ts`
+- `backend/convexClient.js`
+- `backend/routes/projects.js`
+- `backend/__tests__/projectArchive.test.js`
+- `frontend/src/api.js`
+- `frontend/src/pages/Projects.jsx`
+- `frontend/src/pages/ProjectDetail.jsx`
+
+**Out of scope**
+- Hard delete / permanent destruction.
+- Bulk project archive.
+- Auto-purge after N days.
+- Archiving child records directly.
+- Changing project detail access rules for already-archived projects.
+- Touching legacy LP / quote-mining / Shopify publishing layers.
+
+**Risk + rollback**
+- Risk: archived projects could disappear from active project pickers that previously listed every project. This is intentional for default active views; archived projects remain recoverable from the new Archived Projects view.
+- Risk: older automation helpers that used the all-project list now skip archived projects. This matches the archive semantics and prevents hidden projects from being processed.
+- Rollback: revert this entry's code changes and redeploy Convex + Vercel. Existing `archived_at` timestamps are optional and can remain harmlessly on project rows.
+
+---
+
 ## 2026-05-06 — Add per-attempt Gemini timeouts and image attempt diagnostics
 
 **Bug**

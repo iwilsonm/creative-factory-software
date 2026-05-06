@@ -77,6 +77,7 @@ export default defineSchema({
     meta_page_name: v.optional(v.string()),
     // Phase 3 — Account currency (fetched once on connect; benchmarks stored in this currency)
     meta_account_currency: v.optional(v.string()),
+    archived_at: v.optional(v.union(v.string(), v.null())),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),

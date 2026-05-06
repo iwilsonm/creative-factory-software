@@ -7,9 +7,11 @@ import { requireAuth, requireRole } from '../auth.js';
 import {
   getProject,
   getProjectSummaries,
+  getArchivedProjectSummaries,
   getProjectOptions,
   updateProject,
-  deleteProject,
+  archiveProject,
+  unarchiveProject,
   getProjectStats,
   uploadBuffer,
   getStorageUrl,
@@ -56,6 +58,16 @@ router.get('/options', async (req, res) => {
   }
 });
 
+router.get('/archived', async (req, res) => {
+  try {
+    const projects = await getArchivedProjectSummaries();
+    res.json({ projects });
+  } catch (err) {
+    console.error('[Projects] Archived list error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get project stats
 router.get('/:id/stats', async (req, res) => {
   try {
@@ -89,6 +101,34 @@ router.get('/:id', async (req, res) => {
     res.json({ ...project, productImageUrl });
   } catch (err) {
     console.error('[Projects] Get error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/:id/archive', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    await archiveProject(req.params.id);
+    const updated = await getProject(req.params.id);
+    res.json({ success: true, project: updated });
+  } catch (err) {
+    console.error('[Projects] Archive error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/:id/unarchive', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    await unarchiveProject(req.params.id);
+    const updated = await getProject(req.params.id);
+    res.json({ success: true, project: updated });
+  } catch (err) {
+    console.error('[Projects] Unarchive error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -138,16 +178,18 @@ router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
   }
 });
 
-// Delete project
+// Delete project request maps to reversible archive. There is intentionally no
+// hard-delete route in this iteration.
 router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const project = await getProject(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    await deleteProject(req.params.id);
-    res.json({ success: true });
+    await archiveProject(req.params.id);
+    const updated = await getProject(req.params.id);
+    res.json({ success: true, project: updated });
   } catch (err) {
-    console.error('[Projects] Delete error:', err.message);
+    console.error('[Projects] Archive via delete error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -233,6 +233,11 @@ export async function getProjectSummaries() {
   return projects.map(convexProjectSummaryToRow);
 }
 
+export async function getArchivedProjectSummaries() {
+  const projects = ensureArray(await queryWithRetry(api.projects.getArchivedSummaries, {}), 'convexClient.getArchivedProjectSummaries');
+  return projects.map(convexProjectSummaryToRow);
+}
+
 export async function getProjectOptions() {
   const projects = ensureArray(await queryWithRetry(api.projects.getOptions, {}), 'convexClient.getProjectOptions');
   return projects.map(convexProjectOptionToRow);
@@ -247,7 +252,7 @@ export async function getAllProjectsWithStats() {
 // them; the Filter service uses internal constants in creativeFilterService.js.
 // Do not re-add without a real consumer.
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'template_seeding_status', 'template_seeding_error', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'template_seeding_status', 'template_seeding_error', 'archived_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
     // Phase 1 — Staging Page + Director cycle config
     'default_campaign_id', 'adset_default_template', 'ad_sets_per_cycle', 'ads_per_ad_set',
     // Phase 2A — Meta integration
@@ -263,7 +268,7 @@ export async function updateProject(id, fields) {
     // null for unset optional strings, which round-tripped through the
     // frontend form and triggered ArgumentValidationError on save. Any new
     // optional field added to `allowed` is automatically protected here.
-    if (fields[key] !== undefined && fields[key] !== null) {
+    if (fields[key] !== undefined && (fields[key] !== null || key === 'archived_at')) {
       updates[key] = fields[key];
     }
   }
@@ -299,8 +304,15 @@ export async function upsertMetaMcpDiagnostic(entry) {
 }
 
 export async function deleteProject(id) {
-  await mutationWithRetry(api.projects.remove, { externalId: id });
-  invalidateQueryCache('projects');
+  await archiveProject(id);
+}
+
+export async function archiveProject(id) {
+  await updateProject(id, { archived_at: new Date().toISOString() });
+}
+
+export async function unarchiveProject(id) {
+  await updateProject(id, { archived_at: null });
 }
 
 export async function backfillProjectStats(force = false) {
@@ -330,6 +342,7 @@ function convexProjectToRow(p) {
     status: p.status || 'setup',
     template_seeding_status: p.template_seeding_status || 'complete',
     template_seeding_error: p.template_seeding_error || '',
+    archived_at: p.archived_at || null,
     // Dacia Creative Filter per-project config
     scout_enabled: p.scout_enabled ?? null,
     scout_default_campaign: p.scout_default_campaign || '',
@@ -376,6 +389,7 @@ function convexProjectSummaryToRow(p) {
     brand_name: p.brand_name || null,
     niche: p.niche || null,
     status: p.status || 'setup',
+    archived_at: p.archived_at || null,
     template_seeding_status: p.template_seeding_status || 'complete',
     template_seeding_error: p.template_seeding_error || '',
     docCount: p.docCount ?? 0,
@@ -392,6 +406,7 @@ function convexProjectOptionToRow(p) {
     brand_name: p.brand_name || null,
     displayName: p.displayName || p.brand_name || p.name,
     status: p.status || 'setup',
+    archived_at: p.archived_at || null,
     template_seeding_status: p.template_seeding_status || 'complete',
     template_seeding_error: p.template_seeding_error || '',
   };

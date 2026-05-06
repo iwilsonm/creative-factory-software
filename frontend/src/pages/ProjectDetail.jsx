@@ -293,6 +293,7 @@ export default function ProjectDetail() {
     try {
       await api.deleteProject(id);
       setShowDeleteConfirm(false);
+      toast.success('Project archived');
       navigate('/projects');
     } catch (err) {
       toast.error(err.message);
@@ -618,7 +619,7 @@ export default function ProjectDetail() {
           <div className="grid py-[18px] border-b border-ed-line" style={{ gridTemplateColumns: '200px minmax(0,1fr)', columnGap: 32 }}>
             <div className="pt-[10px]">
               <div className="font-serif text-[15px] tracking-[-0.005em] text-ed-ink">Project status</div>
-              <div className="text-[11.5px] text-ed-ink3 mt-1 leading-[1.5]">Save changes or delete this project.</div>
+              <div className="text-[11.5px] text-ed-ink3 mt-1 leading-[1.5]">Save changes or archive this project.</div>
             </div>
             <div className="pt-[10px] flex items-center gap-2">
               <button
@@ -632,7 +633,7 @@ export default function ProjectDetail() {
                 onClick={() => setShowDeleteConfirm(true)}
                 className="px-[13px] py-[7px] text-[12.5px] rounded-[7px] border border-transparent text-ed-rust hover:bg-ed-rust/[0.06] hover:border-ed-rust/20 transition-colors"
               >
-                Delete project
+                Archive project
               </button>
             </div>
           </div>
@@ -723,9 +724,10 @@ export default function ProjectDetail() {
 
       <ConfirmDialog
         open={showDeleteConfirm}
-        title="Delete project?"
-        message="This will permanently delete the project and its related data. This action cannot be undone."
-        confirmLabel="Delete Project"
+        title="Are you sure you want to delete this project?"
+        message="This will move the project into Archived Projects. No ads, documents, templates, or batches will be deleted, and you can unarchive it later."
+        confirmLabel="Yes, archive it"
+        cancelLabel="Cancel"
         busy={deletingProject}
         onCancel={() => setShowDeleteConfirm(false)}
         onConfirm={handleDelete}
