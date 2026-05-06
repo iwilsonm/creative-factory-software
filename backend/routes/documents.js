@@ -197,6 +197,7 @@ router.post('/:projectId/upload-docs', async (req, res) => {
         version,
         source: 'uploaded',
       });
+      invalidateQueryCache('foundational_docs');
 
       saved.push({ id, doc_type: docType, version });
     }

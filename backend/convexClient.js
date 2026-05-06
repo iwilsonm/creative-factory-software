@@ -407,12 +407,12 @@ export async function setProjectProductImage(projectId, storageId) {
 // =============================================
 
 export async function getDocsByProject(projectId) {
-  const docs = await cachedQuery('foundational_docs', api.foundationalDocs.getByProject, { projectId });
+  const docs = await queryWithRetry(api.foundationalDocs.getByProject, { projectId });
   return docs.map(convexDocToRow);
 }
 
 export async function getLatestDoc(projectId, docType) {
-  const doc = await cachedQuery('foundational_docs', api.foundationalDocs.getLatest, { projectId, docType });
+  const doc = await queryWithRetry(api.foundationalDocs.getLatest, { projectId, docType });
   if (!doc) return null;
   return convexDocToRow(doc);
 }

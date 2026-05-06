@@ -440,6 +440,14 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
     setGenError('');
   };
 
+  const refreshDocsForDisplay = async () => {
+    invalidateProjectCache(projectId);
+    const refreshed = await api.getDocs(projectId);
+    setDocsData(refreshed);
+    await onDocsChanged?.();
+    return refreshed;
+  };
+
   const handleChooseManual = async () => {
     setGenerationMode('manual');
     setManualStep(1);
@@ -580,16 +588,18 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
     })).then(() => {
       setGenProgress(100);
       setGenProgressMsg('Complete');
-      setTimeout(() => {
-        setCurrentStep(null);
-        setDeepResearchProgress(null);
-        setGenerationMode(null);
-        setGenProgress(0);
-        setGenProgressMsg('');
-        genStartTimeRef.current = null;
-        invalidateProjectCache(projectId);
-        loadDocs();
-        onDocsChanged?.();
+      setTimeout(async () => {
+        try {
+          await refreshDocsForDisplay();
+          setCurrentStep(null);
+          setDeepResearchProgress(null);
+          setGenerationMode(null);
+          setGenProgress(0);
+          setGenProgressMsg('');
+          genStartTimeRef.current = null;
+        } catch (err) {
+          setGenError(`Documents were generated, but the page could not refresh them: ${err.message}`);
+        }
       }, 500);
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
@@ -639,16 +649,18 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
     })).then(() => {
       setGenProgress(100);
       setGenProgressMsg('Complete');
-      setTimeout(() => {
-        setCurrentStep(null);
-        setGenerationMode(null);
-        setManualStep(1);
-        setManualResearchText('');
-        setGenProgress(0);
-        genStartTimeRef.current = null;
-        invalidateProjectCache(projectId);
-        loadDocs();
-        onDocsChanged?.();
+      setTimeout(async () => {
+        try {
+          await refreshDocsForDisplay();
+          setCurrentStep(null);
+          setGenerationMode(null);
+          setManualStep(1);
+          setManualResearchText('');
+          setGenProgress(0);
+          genStartTimeRef.current = null;
+        } catch (err) {
+          setGenError(`Documents were generated, but the page could not refresh them: ${err.message}`);
+        }
       }, 500);
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);

@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { chat, chatStream, deepResearch } from './openai.js';
 import { chat as claudeChat } from './anthropic.js';
-import { getProject, getLatestDoc, updateProject, convexClient, api } from '../convexClient.js';
+import { getProject, getLatestDoc, updateProject, convexClient, api, invalidateQueryCache } from '../convexClient.js';
 
 const __docgen_dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESEARCH_METHODOLOGY_PROMPT = fs.readFileSync(
@@ -619,6 +619,7 @@ async function saveDoc(projectId, docType, content, source = 'generated') {
     version,
     source,
   });
+  invalidateQueryCache('foundational_docs');
 
   return id;
 }
