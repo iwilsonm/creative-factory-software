@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, updateProject, getSystemDefaultAngle, createConductorAngle } from '../convexClient.js';
+import { getProject, getLatestDoc, updateProject, getSystemDefaultAngle, createConductorAngle, invalidateQueryCache } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
   generateAllDocs,
@@ -103,8 +103,11 @@ router.delete('/:projectId/docs', async (req, res) => {
       projectId: req.params.projectId,
     });
 
+    invalidateQueryCache('foundational_docs');
+
     // Once the source docs are gone, the project should clearly return to setup.
     await updateProject(req.params.projectId, { status: 'setup' });
+    invalidateQueryCache('foundational_docs');
 
     res.json({
       success: true,

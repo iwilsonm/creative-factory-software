@@ -359,7 +359,7 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
 
 export default function FoundationalDocs({ projectId, projectStatus, onDocsChanged }) {
   const toast = useToast();
-  const { data: docsData, loading, refetch: loadDocs } = useAsyncData(
+  const { data: docsData, setData: setDocsData, loading, refetch: loadDocs } = useAsyncData(
     () => api.getDocs(projectId),
     [projectId],
     { initialData: { docs: [], steps: [] } }
@@ -743,6 +743,7 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
       setViewDoc(null);
       setEditingDoc(null);
       setGenerationMode(null);
+      setDocsData(prev => ({ ...(prev || {}), docs: [] }));
       invalidateProjectCache(projectId);
       await loadDocs();
       await onDocsChanged?.();
