@@ -244,6 +244,9 @@ export const api = {
 
   // Foundational Documents
   getDocs: (projectId) => request(`/projects/${projectId}/docs`),
+  deleteDocs: (projectId) =>
+    request(`/projects/${projectId}/docs`, { method: 'DELETE' })
+      .then(r => { invalidateProjectCache(projectId); return r; }),
   updateDoc: (projectId, docId, content) => request(`/projects/${projectId}/docs/${docId}`, { method: 'PUT', body: JSON.stringify({ content }) }),
   approveDoc: (projectId, docId) => request(`/projects/${projectId}/docs/${docId}/approve`, { method: 'PUT' }),
 

@@ -87,6 +87,26 @@ export const remove = mutation({
   },
 });
 
+export const removeByProject = mutation({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const docs = await ctx.db
+      .query("foundational_docs")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+
+    for (const doc of docs) {
+      await ctx.db.delete(doc._id);
+    }
+
+    if (docs.length > 0) {
+      await adjustProjectCounters(ctx, args.projectId, { docCount: -docs.length });
+    }
+
+    return { deleted: docs.length };
+  },
+});
+
 export const getByExternalId = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

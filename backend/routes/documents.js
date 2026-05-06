@@ -93,6 +93,30 @@ router.get('/:projectId/docs', async (req, res) => {
   }
 });
 
+// Remove all foundational docs for a project
+router.delete('/:projectId/docs', async (req, res) => {
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const result = await convexClient.mutation(api.foundationalDocs.removeByProject, {
+      projectId: req.params.projectId,
+    });
+
+    // Once the source docs are gone, the project should clearly return to setup.
+    await updateProject(req.params.projectId, { status: 'setup' });
+
+    res.json({
+      success: true,
+      deleted: result?.deleted || 0,
+      status: 'setup',
+    });
+  } catch (err) {
+    console.error('[Docs] Remove all docs error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to remove foundational documents' });
+  }
+});
+
 // Get pre-populated research prompts for manual research flow
 router.get('/:projectId/research-prompts', async (req, res) => {
   try {

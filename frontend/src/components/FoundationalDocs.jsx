@@ -421,6 +421,8 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
 
   // Regeneration state
   const [regenerating, setRegenerating] = useState(null);
+  const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
+  const [removingDocs, setRemovingDocs] = useState(false);
 
   const streamRef = useRef(null);
 
@@ -730,6 +732,30 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
       toast.success('Document approved');
     } catch (err) {
       toast.error(err.message);
+    }
+  };
+
+  const handleRemoveAllDocs = async () => {
+    setRemovingDocs(true);
+    setGenError('');
+    try {
+      const result = await api.deleteDocs(projectId);
+      setViewDoc(null);
+      setEditingDoc(null);
+      setGenerationMode(null);
+      invalidateProjectCache(projectId);
+      await loadDocs();
+      await onDocsChanged?.();
+      toast.success(
+        result?.deleted
+          ? `Removed ${result.deleted} foundational document${result.deleted === 1 ? '' : 's'}`
+          : 'Foundational documents removed'
+      );
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove foundational documents');
+    } finally {
+      setRemovingDocs(false);
+      setShowRemoveAllConfirm(false);
     }
   };
 
@@ -1327,7 +1353,7 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
             </p>
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <p className="text-sm text-ed-ink2">
                 {hasDocs
@@ -1336,12 +1362,24 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
               </p>
               <InfoTooltip text="Core research documents that guide ad generation: research, avatar, offer brief, and necessary beliefs." position="right" />
             </div>
-            <button
-              onClick={handleGenerateClick}
-              className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors"
-            >
-              {hasDocs ? 'Regenerate All Docs' : 'Generate Foundational Docs'}
-            </button>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {hasDocs && (
+                <button
+                  type="button"
+                  onClick={() => setShowRemoveAllConfirm(true)}
+                  disabled={isGenerating || removingDocs}
+                  className="px-4 py-2 rounded-[7px] text-[13px] border border-ed-rust/25 text-ed-rust bg-ed-rust/5 hover:bg-ed-rust/10 transition-colors disabled:opacity-50"
+                >
+                  {removingDocs ? 'Removing...' : 'Remove All Documents'}
+                </button>
+              )}
+              <button
+                onClick={handleGenerateClick}
+                className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors"
+              >
+                {hasDocs ? 'Regenerate All Docs' : 'Generate Foundational Docs'}
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -1535,6 +1573,18 @@ export default function FoundationalDocs({ projectId, projectStatus, onDocsChang
       {!editingDoc && !viewDoc && hasDocs && (
         <Changelog projectId={projectId} onDocsUpdated={loadDocs} refreshKey={changelogRefreshKey} />
       )}
+
+      <ConfirmDialog
+        open={showRemoveAllConfirm}
+        title="Remove all foundational documents?"
+        message="This removes the Research Document, Avatar Sheet, Offer Brief, and Necessary Beliefs from this project. The project will return to setup until you upload or regenerate foundational documents."
+        confirmLabel="Remove All Documents"
+        cancelLabel="Cancel"
+        tone="danger"
+        busy={removingDocs}
+        onConfirm={handleRemoveAllDocs}
+        onCancel={() => setShowRemoveAllConfirm(false)}
+      />
 
     </div>
   );
