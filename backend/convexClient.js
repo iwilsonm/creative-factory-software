@@ -1139,7 +1139,7 @@ export async function getTemplateImageUrl(externalId) {
 }
 
 export async function getTemplateImagesByProject(projectId) {
-  return await cachedQuery('template_images', api.templateImages.getByProject, { projectId });
+  return await queryWithRetry(api.templateImages.getByProject, { projectId });
 }
 
 export async function getAllTemplateImages() {

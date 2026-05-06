@@ -5,9 +5,10 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { requireAuth } from '../auth.js';
-import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, getAllTemplateImagesWithUrls, convexClient, api } from '../convexClient.js';
+import { requireAuth, requireRole } from '../auth.js';
+import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, getTemplateImagesByProject, getStorageUrl, invalidateQueryCache, convexClient, api } from '../convexClient.js';
 import { chatWithImage } from '../services/openai.js';
+import { adoptSharedTemplatesIntoProject } from '../services/templateAdoption.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -56,6 +57,8 @@ function templateResponse(req, template) {
     tags: Array.isArray(template.tags) ? template.tags : [],
     archived_at: template.archived_at || null,
     analysis: template.analysis || null,
+    source_template_id: template.source_template_id || null,
+    source_project_id: template.source_project_id || null,
     created_at: template.created_at,
     updated_at: template.updated_at || null,
     imageUrl: template.imageUrl || null,
@@ -69,12 +72,19 @@ router.get('/:projectId/templates', async (req, res) => {
     const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const templates = await getAllTemplateImagesWithUrls();
+    const templates = await getTemplateImagesByProject(req.params.projectId);
 
     const includeArchived = req.query.include_archived === 'true';
-    const withUrls = templates
+    const visibleTemplates = templates
       .filter(t => includeArchived || !t.archived_at)
-      .map(t => templateResponse(req, t));
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+    const withUrls = await Promise.all(visibleTemplates.map(async (template) => (
+      templateResponse(req, {
+        ...template,
+        imageUrl: template.storageId ? await getStorageUrl(template.storageId).catch(() => null) : null,
+      })
+    )));
 
     res.json({ templates: withUrls, total: withUrls.length });
   } catch (err) {
@@ -113,6 +123,7 @@ router.post('/:projectId/templates', upload.single('image'), async (req, res) =>
       description,
       tags,
     });
+    invalidateQueryCache('template_images');
 
     res.json({
       id,
@@ -155,6 +166,7 @@ router.put('/:projectId/templates/:imageId', async (req, res) => {
     if (archived_at !== undefined) updates.archived_at = archived_at || null;
 
     await convexClient.mutation(api.templateImages.update, updates);
+    invalidateQueryCache('template_images');
 
     const updated = await convexClient.query(api.templateImages.getByExternalId, {
       externalId: req.params.imageId,
@@ -181,11 +193,25 @@ router.delete('/:projectId/templates/:imageId', async (req, res) => {
     await convexClient.mutation(api.templateImages.remove, {
       externalId: req.params.imageId,
     });
+    invalidateQueryCache('template_images');
 
     res.json({ success: true, id: req.params.imageId });
   } catch (err) {
     console.error('[Templates] Delete error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:projectId/templates/adopt-shared', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const result = await adoptSharedTemplatesIntoProject(req.params.projectId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Templates] Adopt shared error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to adopt shared templates' });
   }
 });
 

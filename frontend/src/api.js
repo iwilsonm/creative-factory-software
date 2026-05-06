@@ -343,6 +343,8 @@ export const api = {
   },
   deleteTemplate: (projectId, imageId) =>
     request(`/projects/${projectId}/templates/${imageId}`, { method: 'DELETE' }),
+  adoptSharedTemplates: (projectId) =>
+    request(`/projects/${projectId}/templates/adopt-shared`, { method: 'POST' }),
   analyzeTemplate: (projectId, templateId, force = false) =>
     request(`/projects/${projectId}/templates/${templateId}/analyze`, {
       method: 'POST',

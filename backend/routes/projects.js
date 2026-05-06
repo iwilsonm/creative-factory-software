@@ -17,6 +17,7 @@ import {
   getStorageUrl,
   setProjectProductImage
 } from '../convexClient.js';
+import { adoptSharedTemplatesIntoProject } from '../services/templateAdoption.js';
 
 const imgUpload = multer({
   dest: os.tmpdir(),
@@ -114,8 +115,25 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
       inspiration_folder_id: inspiration_folder_id || ''
     });
 
+    let adoption = { copied: 0, skipped: 0, failed: [] };
+    try {
+      adoption = await adoptSharedTemplatesIntoProject(id);
+    } catch (adoptionErr) {
+      console.warn(`[Projects] Template adoption failed for new project ${id}: ${adoptionErr.message}`);
+      adoption = {
+        copied: 0,
+        skipped: 0,
+        failed: [{ error: adoptionErr.message || 'Template adoption failed' }],
+      };
+    }
     const project = await getProject(id);
-    res.status(201).json(project);
+    res.status(201).json({
+      ...project,
+      template_adoption: adoption,
+      template_adoption_warning: adoption.failed.length > 0
+        ? `${adoption.failed.length} template${adoption.failed.length === 1 ? '' : 's'} could not be copied.`
+        : null,
+    });
   } catch (err) {
     console.error('[Projects] Create error:', err.message);
     res.status(500).json({ error: err.message });

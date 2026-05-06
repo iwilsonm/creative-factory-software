@@ -103,6 +103,8 @@ export default defineSchema({
     tags: v.optional(v.array(v.string())),
     archived_at: v.optional(v.union(v.string(), v.null())),
     analysis: v.optional(v.string()),
+    source_template_id: v.optional(v.string()),
+    source_project_id: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.optional(v.string()),
   })
