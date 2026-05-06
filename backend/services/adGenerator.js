@@ -60,6 +60,18 @@ function isTerminalAdStatus(status) {
   return TERMINAL_AD_STATUSES.has(status);
 }
 
+function serializeImageAttempts(attempts) {
+  if (!Array.isArray(attempts) || attempts.length === 0) return undefined;
+  return JSON.stringify(attempts.map((attempt, index) => ({
+    attempt_number: Number(attempt.attempt_number) || index + 1,
+    started_at: attempt.started_at || null,
+    ended_at: attempt.ended_at || null,
+    duration_ms: Number.isFinite(attempt.duration_ms) ? attempt.duration_ms : null,
+    error_class: attempt.error_class || 'unknown',
+    error_message: attempt.error_message || null,
+  })));
+}
+
 async function precacheThumb(adId, imageBuffer) {
   try {
     const thumb = await sharp(imageBuffer)
@@ -712,6 +724,7 @@ export async function generateAd(projectId, options = {}) {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'ad_generation',
+      image_attempts: serializeImageAttempts(err.imageAttempts),
     });
     emit({ type: 'error', error: err.message });
     throw err;
@@ -782,7 +795,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     ? `Generating image with ${modelLabel} (with product reference)...`
     : `Generating image with ${modelLabel}...`, progress: 70 });
 
-  const { imageBuffer, mimeType: imgMime } = await imageGen(imagePrompt, aspectRatio, providerProductImage, {
+  const { imageBuffer, mimeType: imgMime, imageAttempts } = await imageGen(imagePrompt, aspectRatio, providerProductImage, {
     projectId, operation: 'ad_image_generation', imageModel, imageSize: '2K',
     referenceImages: isOpenAIImage ? renderReferenceImages : undefined,
   });
@@ -816,6 +829,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     status: 'completed',
     error_message: null,
     failure_stage: null,
+    image_attempts: serializeImageAttempts(imageAttempts),
   });
 
   // Return the completed ad record with direct CDN URL for fast loading
@@ -837,6 +851,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     status: ad.status,
     updated_at: ad.updated_at || null,
     completed_at: ad.completed_at || null,
+    image_attempts: ad.image_attempts || null,
     imageUrl: resolvedUrl || `/api/projects/${projectId}/ads/${adId}/image`,
     thumbnailUrl: `/api/projects/${projectId}/ads/${adId}/thumbnail`,
   };
@@ -1021,6 +1036,7 @@ export async function generateAdMode2(projectId, options = {}) {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'ad_generation_mode2',
+      image_attempts: serializeImageAttempts(err.imageAttempts),
     });
     emit({ type: 'error', error: err.message });
     throw err;
@@ -2456,6 +2472,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'image_regeneration',
+      image_attempts: serializeImageAttempts(err.imageAttempts),
     });
     emit({ type: 'error', error: err.message });
     throw err;

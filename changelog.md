@@ -1,5 +1,52 @@
 # Creative Factory — Changelog
 
+## 2026-05-06 — Add per-attempt Gemini timeouts and image attempt diagnostics
+
+**Bug**
+- Single-ad generations could still get stuck even after the Vercel `maxDuration` bump from 300s to 800s.
+- The reproduced production pattern was: Gemini Nano Banana 2 attempts 1 and 2 failed quickly with `fetch failed`, then a later synchronous `ai.models.generateContent` call hung silently until Vercel killed the function.
+- Mode 2 was audited and confirmed not to be using the Gemini Batch API; Mode 1 and Mode 2 both route through the same synchronous Gemini wrapper.
+
+**Cause**
+- `backend/services/gemini.js#generateImage` used retry logic around `ai.models.generateContent`, but each attempt had no per-attempt timeout or abort signal.
+- A single hung Google Gen AI SDK request could consume the entire serverless window before the retry wrapper regained control.
+- The previous observability fields (`updated_at`, `completed_at`, `last_progress_at`) showed when the ad died, but not which image attempt hung or how long each attempt ran.
+
+**Fix**
+- Added a 90-second `AbortController` timeout inside `generateImage()` for each synchronous Gemini image attempt.
+- Reduced the synchronous Gemini image path to 2 total attempts, preserving retry behavior for transient `fetch failed`, timeout, 429, and 5xx-style errors without giving a hung provider call a third chance to consume the whole function window.
+- Added `image_attempts` to `ad_creatives` as a JSON-stringified array containing `{ attempt_number, started_at, ended_at, duration_ms, error_class, error_message }`.
+- Propagated `image_attempts` through Convex create/update args, backend row mappers, successful single-ad writes, failed single-ad writes, Mode 2 failures, and image-regeneration failures.
+- Added tests for:
+  - passing an `AbortSignal` into the synchronous Gemini SDK call,
+  - retrying once after a 90-second timeout,
+  - failing cleanly after two timed-out attempts with diagnostics attached,
+  - persisting image attempts on success and failure,
+  - keeping Mode 2 on the synchronous Gemini wrapper and away from batch-job helpers.
+
+**Files modified**
+- `convex/schema.ts`
+- `convex/adCreatives.ts`
+- `backend/convexClient.js`
+- `backend/services/gemini.js`
+- `backend/services/adGenerator.js`
+- `backend/__tests__/geminiTimeout.test.js`
+- `backend/__tests__/adGeneratorOpenAI.test.js`
+
+**Out of scope**
+- Changing the Gemini Batch API path used by `batchProcessor.js`; batch remains async by design.
+- Hardening OpenAI image calls with per-attempt aborts.
+- Changing the 10-minute stale-generation sweeper threshold.
+- Refactoring single-ad generation into a durable worker queue.
+- Changing Nano Banana prompt structure, model choice, or template/image selection behavior.
+
+**Risk + rollback**
+- Risk: 90 seconds may be too strict if Gemini synchronous image latency regresses. Mitigation: every timeout is now logged distinctly in `image_attempts`, so the threshold can be adjusted with real data instead of inference.
+- Risk: reducing attempts from the prior retry setting can surface failures sooner during provider turbulence. Mitigation: two attempts still cover transient blips while preventing the recurring full-window hang.
+- Rollback: revert this entry's code changes and redeploy Convex + Vercel. Existing `image_attempts` values are optional diagnostic strings and can remain safely on old rows.
+
+---
+
 ## 2026-05-06 — Raise single-ad timeout ceiling and add exact ad completion timestamps
 
 **Diagnostic findings**

@@ -154,6 +154,7 @@ export default defineSchema({
     error_message: v.optional(v.union(v.string(), v.null())),
     failure_stage: v.optional(v.union(v.string(), v.null())),
     last_progress_at: v.optional(v.string()),
+    image_attempts: v.optional(v.string()), // JSON array of sync image-generation attempt diagnostics
     updated_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),
     worker_lease_owner: v.optional(v.union(v.string(), v.null())),

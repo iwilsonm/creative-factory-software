@@ -6,6 +6,8 @@ import { logGeminiCost } from './costTracker.js';
 
 let client = null;
 let lastApiKey = null;
+const GEMINI_IMAGE_ATTEMPT_TIMEOUT_MS = 90 * 1000;
+const GEMINI_IMAGE_MAX_ATTEMPTS = 2;
 
 async function getClient() {
   const apiKey = await getSetting('gemini_api_key');
@@ -24,6 +26,70 @@ const GEMINI_MODELS = {
   'nano-banana-2': 'gemini-3.1-flash-image-preview',
 };
 
+function durationMs(startedMs) {
+  return Math.max(0, Date.now() - startedMs);
+}
+
+function classifyGeminiError(err, timedOut = false) {
+  const status = err?.status || err?.statusCode || err?.httpCode;
+  const message = String(err?.message || '');
+  if (timedOut || err?.code === 'GEMINI_ATTEMPT_TIMEOUT' || err?.name === 'AbortError') return 'timeout';
+  if (status === 429 || err?.code === 'RESOURCE_EXHAUSTED' || /RESOURCE_EXHAUSTED|rate.?limit|quota/i.test(message)) return 'rate_limit';
+  if (status >= 400) return 'api_error';
+  if (err?.code && ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT'].includes(err.code)) return 'fetch_failed';
+  if (/fetch|network|socket|ECONNRESET|ETIMEDOUT/i.test(message)) return 'fetch_failed';
+  return 'unknown';
+}
+
+function sanitizeAttemptMessage(message) {
+  return String(message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function buildTimeoutError(timeoutMs) {
+  const err = new Error(`Gemini image generation attempt timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+  err.code = 'GEMINI_ATTEMPT_TIMEOUT';
+  return err;
+}
+
+function attachImageAttempts(err, attempts) {
+  try {
+    Object.defineProperty(err, 'imageAttempts', {
+      value: attempts,
+      enumerable: false,
+      configurable: true,
+    });
+  } catch {
+    err.imageAttempts = attempts;
+  }
+  return err;
+}
+
+async function generateContentWithAttemptTimeout(ai, params, timeoutMs) {
+  const controller = new AbortController();
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const timeoutErr = buildTimeoutError(timeoutMs);
+      try { controller.abort(timeoutErr); } catch { controller.abort(); }
+      reject(timeoutErr);
+    }, timeoutMs);
+  });
+
+  const requestPromise = ai.models.generateContent({
+    ...params,
+    config: {
+      ...(params.config || {}),
+      abortSignal: controller.signal,
+    },
+  });
+
+  try {
+    return await Promise.race([requestPromise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Generate an image using Nano Banana Pro or Nano Banana 2.
  * Cost is auto-logged to Convex api_costs table.
@@ -36,6 +102,7 @@ const GEMINI_MODELS = {
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
   const { projectId = null, operation = 'image_generation', isBatch = false, imageModel, imageSize } = options;
   const ai = await getClient();
+  const imageAttempts = [];
 
   // Resolve model name — default to Nano Banana 2
   const modelId = GEMINI_MODELS[imageModel] || GEMINI_MODELS['nano-banana-2'];
@@ -43,90 +110,132 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   const requestedImageSize = imageSize || (imageModel !== 'nano-banana-pro' ? '512' : '1K');
 
   try {
-  let contents;
-  if (productImage) {
-    contents = [
-      { text: prompt },
-      {
-        inlineData: {
-          data: productImage.base64,
-          mimeType: productImage.mimeType
-        }
-      }
-    ];
-  } else {
-    contents = prompt;
-  }
-
-  // Gemini sometimes returns 400 INVALID_ARGUMENT for transient issues (rate limits, capacity).
-  // Custom retry predicate to handle this, plus standard network/server errors.
-  const shouldRetryGemini = (err) => {
-    const status = err.status || err.statusCode || err.httpCode;
-    // Retry 400 from Gemini (transient INVALID_ARGUMENT errors)
-    if (status === 400 && err.message?.includes('INVALID_ARGUMENT')) return true;
-    // Retry 429 (rate limit) and 5xx (server errors)
-    if (status === 429 || status >= 500) return true;
-    // Retry network errors
-    const networkCodes = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'];
-    if (err.code && networkCodes.includes(err.code)) return true;
-    if (err.message && /fetch|network|socket|ECONNRESET|ETIMEDOUT/i.test(err.message)) return true;
-    return false;
-  };
-
-  const response = await withGeminiLimit(
-    () => withRetry(
-      () => ai.models.generateContent({
-        model: modelId,
-        contents,
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: {
-            aspectRatio: aspectRatio || '1:1',
-            // Caller can request a specific size (e.g. '2K' for ads).
-            // Default: 512 for Nano Banana 2, omit for Pro (defaults to 1K).
-            // Pro only supports 1K/2K/4K; 512 is not valid for Pro.
-            imageSize: imageSize || (imageModel !== 'nano-banana-pro' ? '512' : undefined),
+    let contents;
+    if (productImage) {
+      contents = [
+        { text: prompt },
+        {
+          inlineData: {
+            data: productImage.base64,
+            mimeType: productImage.mimeType
           }
         }
-      }),
-      { label: `[Gemini ${modelLabel}]`, maxRetries: 3, shouldRetry: shouldRetryGemini, baseDelayMs: 2000 }
-    ),
-    `[Gemini ${modelLabel} ${aspectRatio || '1:1'}]`
-  );
+      ];
+    } else {
+      contents = prompt;
+    }
 
-  let imageBuffer = null;
-  let mimeType = 'image/png';
-  let textResponse = '';
+    // Gemini sometimes returns 400 INVALID_ARGUMENT for transient issues (rate limits, capacity).
+    // Custom retry predicate to handle this, plus standard network/server errors.
+    const shouldRetryGemini = (err) => {
+      const status = err.status || err.statusCode || err.httpCode;
+      if (err.geminiErrorClass === 'timeout') return true;
+      // Retry 400 from Gemini (transient INVALID_ARGUMENT errors)
+      if (status === 400 && err.message?.includes('INVALID_ARGUMENT')) return true;
+      // Retry 429 (rate limit) and 5xx (server errors)
+      if (status === 429 || status >= 500) return true;
+      // Retry network errors
+      const networkCodes = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'];
+      if (err.code && networkCodes.includes(err.code)) return true;
+      if (err.message && /fetch|network|socket|ECONNRESET|ETIMEDOUT/i.test(err.message)) return true;
+      return false;
+    };
 
-  if (response.candidates && response.candidates[0]) {
-    const parts = response.candidates[0].content?.parts || [];
-    for (const part of parts) {
-      if (part.inlineData) {
-        imageBuffer = Buffer.from(part.inlineData.data, 'base64');
-        mimeType = part.inlineData.mimeType || 'image/png';
-      } else if (part.text) {
-        textResponse += part.text;
+    const response = await withGeminiLimit(
+      () => withRetry(
+        async () => {
+          const attemptNumber = imageAttempts.length + 1;
+          const startedAt = new Date().toISOString();
+          const startedMs = Date.now();
+          let timedOut = false;
+          try {
+            const result = await generateContentWithAttemptTimeout(ai, {
+              model: modelId,
+              contents,
+              config: {
+                responseModalities: ['TEXT', 'IMAGE'],
+                imageConfig: {
+                  aspectRatio: aspectRatio || '1:1',
+                  // Caller can request a specific size (e.g. '2K' for ads).
+                  // Default: 512 for Nano Banana 2, omit for Pro (defaults to 1K).
+                  // Pro only supports 1K/2K/4K; 512 is not valid for Pro.
+                  imageSize: imageSize || (imageModel !== 'nano-banana-pro' ? '512' : undefined),
+                }
+              }
+            }, GEMINI_IMAGE_ATTEMPT_TIMEOUT_MS);
+            imageAttempts.push({
+              attempt_number: attemptNumber,
+              started_at: startedAt,
+              ended_at: new Date().toISOString(),
+              duration_ms: durationMs(startedMs),
+              error_class: 'success',
+              error_message: null,
+            });
+            return result;
+          } catch (err) {
+            timedOut = err?.code === 'GEMINI_ATTEMPT_TIMEOUT' || err?.name === 'AbortError';
+            const errorClass = classifyGeminiError(err, timedOut);
+            imageAttempts.push({
+              attempt_number: attemptNumber,
+              started_at: startedAt,
+              ended_at: new Date().toISOString(),
+              duration_ms: durationMs(startedMs),
+              error_class: errorClass,
+              error_message: sanitizeAttemptMessage(err?.message || errorClass),
+            });
+            if (errorClass === 'timeout') {
+              console.warn(`[Gemini ${modelLabel}] Attempt ${attemptNumber}/${GEMINI_IMAGE_MAX_ATTEMPTS} aborted after ${Math.round(GEMINI_IMAGE_ATTEMPT_TIMEOUT_MS / 1000)}s.`);
+            }
+            err.geminiErrorClass = errorClass;
+            throw err;
+          }
+        },
+        {
+          label: `[Gemini ${modelLabel}]`,
+          maxRetries: GEMINI_IMAGE_MAX_ATTEMPTS - 1,
+          shouldRetry: shouldRetryGemini,
+          baseDelayMs: 2000,
+        }
+      ),
+      `[Gemini ${modelLabel} ${aspectRatio || '1:1'}]`
+    );
+
+    let imageBuffer = null;
+    let mimeType = 'image/png';
+    let textResponse = '';
+
+    if (response.candidates && response.candidates[0]) {
+      const parts = response.candidates[0].content?.parts || [];
+      for (const part of parts) {
+        if (part.inlineData) {
+          imageBuffer = Buffer.from(part.inlineData.data, 'base64');
+          mimeType = part.inlineData.mimeType || 'image/png';
+        } else if (part.text) {
+          textResponse += part.text;
+        }
       }
     }
-  }
 
-  if (!imageBuffer) {
-    throw new Error(`${modelLabel} did not return an image. The model may have refused the prompt or encountered an error.`);
-  }
+    if (!imageBuffer) {
+      throw new Error(`${modelLabel} did not return an image. The model may have refused the prompt or encountered an error.`);
+    }
 
-  // Auto-log Gemini cost (fire-and-forget)
-  logGeminiCost(projectId, 1, requestedImageSize, isBatch, operation).catch(() => {});
+    // Auto-log Gemini cost (fire-and-forget)
+    logGeminiCost(projectId, 1, requestedImageSize, isBatch, operation).catch(() => {});
 
-  return { imageBuffer, mimeType, textResponse };
+    return { imageBuffer, mimeType, textResponse, imageAttempts };
   } catch (err) {
     // Clean up Gemini API error messages — the SDK returns raw JSON as the message string
     if (err.message?.includes('INVALID_ARGUMENT')) {
-      throw new Error('Image generation temporarily unavailable (Gemini API capacity issue). Please try again in a moment.');
+      throw attachImageAttempts(new Error('Image generation temporarily unavailable (Gemini API capacity issue). Please try again in a moment.'), imageAttempts);
     }
     if (err.message?.includes('RESOURCE_EXHAUSTED') || err.status === 429) {
-      throw new Error('Image generation rate limit reached. Please wait a moment and try again.');
+      throw attachImageAttempts(new Error('Image generation rate limit reached. Please wait a moment and try again.'), imageAttempts);
     }
-    throw err;
+    if (err.geminiErrorClass === 'timeout' || err.code === 'GEMINI_ATTEMPT_TIMEOUT') {
+      throw attachImageAttempts(new Error('Image generation timed out while waiting for Gemini. Please retry this ad.'), imageAttempts);
+    }
+    throw attachImageAttempts(err, imageAttempts);
   }
 }
 

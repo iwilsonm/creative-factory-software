@@ -138,6 +138,14 @@ function setupHappyPath() {
   mocks.geminiGenerateImage.mockResolvedValue({
     imageBuffer: generatedImage,
     mimeType: 'image/png',
+    imageAttempts: [{
+      attempt_number: 1,
+      started_at: '2026-05-06T00:00:00.000Z',
+      ended_at: '2026-05-06T00:00:02.000Z',
+      duration_ms: 2000,
+      error_class: 'success',
+      error_message: null,
+    }],
   });
   mocks.uploadBuffer.mockResolvedValue('storage-ad');
   mocks.getAdImageUrl.mockResolvedValue('https://example.com/ad.png');
@@ -225,11 +233,26 @@ describe('GPT Image 2 ad generation plumbing', () => {
     expect(mocks.convexMutation).toHaveBeenCalledWith('adCreatives.update', expect.objectContaining({
       status: 'completed',
       completed_at: expect.any(String),
+      image_attempts: expect.any(String),
     }));
+    const completedUpdate = mocks.convexMutation.mock.calls.find(([, payload]) => payload?.status === 'completed')?.[1];
+    expect(JSON.parse(completedUpdate.image_attempts)).toEqual([expect.objectContaining({
+      attempt_number: 1,
+      error_class: 'success',
+    })]);
   });
 
   it('records completed_at on a failed generation update', async () => {
-    mocks.geminiGenerateImage.mockRejectedValueOnce(new Error('image provider 500'));
+    const err = new Error('image provider 500');
+    err.imageAttempts = [{
+      attempt_number: 1,
+      started_at: '2026-05-06T00:00:00.000Z',
+      ended_at: '2026-05-06T00:00:01.000Z',
+      duration_ms: 1000,
+      error_class: 'api_error',
+      error_message: 'image provider 500',
+    }];
+    mocks.geminiGenerateImage.mockRejectedValueOnce(err);
 
     await expect(generateAd('project-1', {
       uploadedImageBase64: Buffer.from('uploaded-layout').toString('base64'),
@@ -242,6 +265,31 @@ describe('GPT Image 2 ad generation plumbing', () => {
       status: 'failed',
       error_message: 'image provider 500',
       completed_at: expect.any(String),
+      image_attempts: expect.any(String),
+    }));
+    const failedUpdate = mocks.convexMutation.mock.calls.find(([, payload]) => payload?.status === 'failed')?.[1];
+    expect(JSON.parse(failedUpdate.image_attempts)).toEqual([expect.objectContaining({
+      attempt_number: 1,
+      error_class: 'api_error',
+    })]);
+  });
+
+  it('routes Mode 2 Nano Banana through the synchronous Gemini wrapper, not a batch job', async () => {
+    await generateAdMode2('project-1', {
+      templateImageId: 'template-1',
+      imageModel: 'nano-banana-2',
+      headline: 'Headline',
+      bodyCopy: 'Body',
+    });
+
+    expect(mocks.geminiGenerateImage).toHaveBeenCalledTimes(1);
+    const [, , , options] = mocks.geminiGenerateImage.mock.calls[0];
+    expect(options).toMatchObject({
+      imageModel: 'nano-banana-2',
+      operation: 'ad_image_generation',
+    });
+    expect(mocks.convexMutation).not.toHaveBeenCalledWith('adCreatives.update', expect.objectContaining({
+      gemini_batch_job: expect.any(String),
     }));
   });
 });
