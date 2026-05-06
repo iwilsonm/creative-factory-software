@@ -1,5 +1,50 @@
 # Creative Factory — Changelog
 
+## 2026-05-06 — Add global stuck-generation sweeper and queue watchdog
+
+**Bug**
+- Ad Studio single-ad generations could still appear stuck in the queue when a Vercel request died mid-generation or the SSE stream ended before a terminal event reached the browser.
+- Prior fixes marked stale ads only when the user later loaded Ad Studio for that same project, so recovery depended on page traffic and did not cover batches or Creative Director runs.
+
+**Cause**
+- Vercel serverless functions have a 300-second max duration. If a single generation was killed while waiting on GPT/Gemini, the request could stop before writing `status='completed'` or `status='failed'`.
+- Existing cleanup lived behind project-specific Ad Studio endpoints (`GET /ads`, `GET /ads/in-progress`) instead of a global production sweeper.
+- There was no `/api/health` signal proving stale-generation recovery was running successfully.
+
+**Fix**
+- Added a global generation sweeper that scans:
+  - `ad_creatives` active statuses using `last_progress_at || created_at`,
+  - `batch_jobs` active statuses using `last_heartbeat_at || started_at || queued_at || created_at`,
+  - `conductor_runs` active statuses using `scoring_started_at || run_at || created_at`.
+- The sweeper marks records with no heartbeat for 10+ minutes as `failed` with a `[STALE]` message explaining the timeout/worker/stream failure pattern.
+- Added `/api/cron/generation-sweeper`, wired to Vercel Cron every 5 minutes.
+- Added `/api/health/sweeper`, which reports the last successful sweep and fails loud if the sweeper has not succeeded in over 1 hour.
+- Added 30-second single-ad heartbeats while Mode 1, Mode 2, and image-only regeneration are running so long in-flight requests are not falsely swept.
+- Added an Ad Studio queue watchdog that shows a clear “Generation may have failed” message if no progress arrives for over 10 minutes.
+
+**Files modified**
+- `convex/conductor.ts`
+- `backend/services/generationSweeper.js`
+- `backend/services/adGenerator.js`
+- `backend/routes/cron.js`
+- `backend/server.js`
+- `backend/__tests__/generationSweeper.test.js`
+- `frontend/src/components/AdStudio.jsx`
+- `vercel.json`
+
+**Out of scope**
+- Replacing single-ad generation with a durable external job queue.
+- Changing batch generation architecture beyond stale recovery.
+- Fixing the known `conductorLearning.js` `messages.filter is not a function` issue.
+- Touching legacy LP / quote-mining / Shopify publishing layers.
+
+**Risk + rollback**
+- Risk: a legitimate long-running record could be marked failed if it emits no heartbeat for 10 minutes. Mitigation: single-ad flows now heartbeat every 30 seconds, and batch flows already heartbeat through scheduler/polling.
+- Risk: Vercel Cron could fail to invoke the route. Mitigation: `/api/health/sweeper` exposes last successful sweep age and returns degraded after 1 hour.
+- Rollback: remove the cron entry and revert this entry's code changes. Existing records marked `[STALE]` remain failed but can be retried manually from the UI.
+
+---
+
 ## 2026-05-06 — Lock new-project template inheritance to storage-provenance copies
 
 **Bug**

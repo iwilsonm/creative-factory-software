@@ -387,6 +387,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   }, [viewAd]);
 
   const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
+  const QUEUE_WATCHDOG_MS = 10 * 60 * 1000;
 
   const syncInProgressAds = useCallback(async ({ cancelledRef } = {}) => {
     try {
@@ -413,6 +414,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             warning: '',
             progress: ad.status === 'generating_copy' ? 25 : 65,
             startTime: new Date(ad.created_at).getTime(),
+            lastEventAt: progressAt || Date.now(),
             source: 'restored',
           };
         });
@@ -487,6 +489,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
         const currentAd = inProgressMap.get(g.adExternalId);
         if (currentAd && currentAd.status !== g.status) {
+          const progressAt = new Date(currentAd.last_progress_at || currentAd.created_at).getTime();
           return {
             ...g,
             status: currentAd.status,
@@ -494,7 +497,15 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               ? 'Image generation in progress...'
               : 'Creative direction in progress...',
             progress: currentAd.status === 'generating_image' ? 65 : 25,
+            lastEventAt: Number.isFinite(progressAt) ? progressAt : Date.now(),
           };
+        }
+
+        if (currentAd) {
+          const progressAt = new Date(currentAd.last_progress_at || currentAd.created_at).getTime();
+          if (Number.isFinite(progressAt) && progressAt !== g.lastEventAt) {
+            return { ...g, lastEventAt: progressAt };
+          }
         }
 
         return g;
@@ -524,6 +535,25 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       console.error('Queue poll error:', err);
     }
   }, 5000, trackedGenerationCount > 0);
+
+  useEffect(() => {
+    if (activeGens.length === 0) return undefined;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setActiveGens(prev => prev.map(g => {
+        if (!g.status || g.status === 'completed' || g.error) return g;
+        const lastEventAt = g.lastEventAt || g.startTime || now;
+        if (now - lastEventAt < QUEUE_WATCHDOG_MS) return g;
+        return {
+          ...g,
+          status: null,
+          progress: 0,
+          error: 'Generation may have failed — no progress has arrived for more than 10 minutes. Refresh the page to check saved status, then retry if needed.',
+        };
+      }));
+    }, 30 * 1000);
+    return () => clearInterval(interval);
+  }, [activeGens.length, QUEUE_WATCHDOG_MS]);
 
   // Sync prompt guidelines when project prop changes
   useEffect(() => {
@@ -891,7 +921,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
   // Helper to update a specific generation entry
   const updateGen = (genId, updates) => {
-    setActiveGens(prev => prev.map(g => g.id === genId ? { ...g, ...updates } : g));
+    setActiveGens(prev => prev.map(g => g.id === genId ? { ...g, ...updates, lastEventAt: Date.now() } : g));
   };
 
   // Remove a completed/errored generation from the list
@@ -1049,7 +1079,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
     // Add this generation to active list
     const isWaitingForTurn = activeGenCount > 0;
-    const newGen = { id: genId, label: genLabel, status: isWaitingForTurn ? 'queued' : 'preparing', message: isWaitingForTurn ? 'Waiting for the current ad to finish...' : 'Preparing...', error: '', warning: '', progress: isWaitingForTurn ? 0 : 1, startTime: Date.now() };
+    const now = Date.now();
+    const newGen = { id: genId, label: genLabel, status: isWaitingForTurn ? 'queued' : 'preparing', message: isWaitingForTurn ? 'Waiting for the current ad to finish...' : 'Preparing...', error: '', warning: '', progress: isWaitingForTurn ? 0 : 1, startTime: now, lastEventAt: now };
     setActiveGens(prev => [...prev, newGen]);
 
     // Notify with toast + scroll link
@@ -1111,7 +1142,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           setActiveGens(prev => prev
             .filter(g => !(g.source === 'restored' && g.adExternalId === event.adId))
             .map(g => g.id === genId
-              ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse' }
+              ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse', lastEventAt: Date.now() }
               : g
             )
           );
@@ -1256,6 +1287,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               message: 'Connection ended; checking saved ad status...',
               warning: err.message,
               progress: Math.max(g.progress || 0, 80),
+              lastEventAt: Date.now(),
             };
           }
           return { ...g, error: err.message, status: null };
@@ -1539,7 +1571,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       error: '',
       warning: '',
       progress: isWaitingForTurn ? 0 : 1,
-      startTime: Date.now()
+      startTime: Date.now(),
+      lastEventAt: Date.now()
     };
     setActiveGens(prev => [...prev, newGen]);
 
@@ -1561,7 +1594,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           setActiveGens(prev => prev
             .filter(g => !(g.source === 'restored' && g.adExternalId === event.adId))
             .map(g => g.id === genId
-              ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse' }
+              ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse', lastEventAt: Date.now() }
               : g
             )
           );
@@ -1635,6 +1668,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               message: 'Connection ended; checking saved ad status...',
               warning: err.message,
               progress: Math.max(g.progress || 0, 80),
+              lastEventAt: Date.now(),
             };
           }
           return { ...g, error: err.message, status: null };
@@ -1676,6 +1710,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       warning: '',
       progress: isWaitingForTurn ? 0 : 1,
       startTime: Date.now(),
+      lastEventAt: Date.now(),
     }]);
 
     toast.info(
@@ -1696,7 +1731,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             setActiveGens(prev => prev
               .filter(g => !(g.source === 'restored' && g.adExternalId === event.adId))
               .map(g => g.id === genId
-                ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse' }
+                ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse', lastEventAt: Date.now() }
                 : g
               )
             );
@@ -1744,6 +1779,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 message: 'Connection ended; checking saved ad status...',
                 warning: err.message,
                 progress: Math.max(g.progress || 0, 80),
+                lastEventAt: Date.now(),
               };
             }
             return { ...g, error: err.message, status: null };

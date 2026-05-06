@@ -41,6 +41,7 @@ import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { refreshGeminiRates } from './services/costTracker.js';
 import { getSchedulerStatus, initializeScheduler } from './services/scheduler.js';
+import { getGenerationSweeperHealth } from './services/generationSweeper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -260,6 +261,27 @@ try {
 
     const overall = checks.convex === 'ok' && checks.adSetAtomicCombine === 'ok' && checks.batchCronWorker === 'ok' ? 'ok' : 'degraded';
     res.json({ status: overall, timestamp: new Date().toISOString(), checks });
+  });
+
+  app.get('/api/health/sweeper', async (req, res) => {
+    try {
+      const sweeper = await getGenerationSweeperHealth();
+      res.status(sweeper.ok ? 200 : 503).json({
+        ok: sweeper.ok,
+        status: sweeper.ok ? 'ok' : 'degraded',
+        service: 'generation-sweeper',
+        timestamp: new Date().toISOString(),
+        sweeper,
+      });
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        status: 'error',
+        service: 'generation-sweeper',
+        timestamp: new Date().toISOString(),
+        error: err.message,
+      });
+    }
   });
 
   // Routes — auth (no role restriction)

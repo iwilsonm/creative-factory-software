@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { runAllProjectsObservation } from '../services/observationTracker.js';
 import { runSchedulerOnce } from '../services/scheduler.js';
+import { sweepStaleGenerations } from '../services/generationSweeper.js';
 import { getSetting } from '../convexClient.js';
 import { getCronSecret, isValidCronBearer } from '../security.js';
 
@@ -61,5 +62,18 @@ async function runBatchCron(req, res) {
 
 router.get('/batches', requireCronSecret, runBatchCron);
 router.post('/batches', requireCronSecret, runBatchCron);
+
+async function runGenerationSweeperCron(req, res) {
+  try {
+    const result = await sweepStaleGenerations({ source: 'vercel-cron' });
+    res.json({ success: result?.success !== false, result });
+  } catch (err) {
+    console.error('[cron generation-sweeper] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+router.get('/generation-sweeper', requireCronSecret, runGenerationSweeperCron);
+router.post('/generation-sweeper', requireCronSecret, runGenerationSweeperCron);
 
 export default router;

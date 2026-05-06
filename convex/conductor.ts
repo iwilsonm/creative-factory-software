@@ -565,6 +565,15 @@ export const getRuns = query({
   },
 });
 
+export const getActiveRuns = query({
+  args: {},
+  handler: async (ctx) => {
+    const activeStatuses = new Set(["running", "scoring", "repairing", "processing"]);
+    const runs = await ctx.db.query("conductor_runs").collect();
+    return runs.filter((run) => activeStatuses.has(run.status));
+  },
+});
+
 export const createRun = mutation({
   args: {
     externalId: v.string(),

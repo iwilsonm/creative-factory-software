@@ -89,6 +89,16 @@ function emitProgress(emit, adId, event) {
   }).catch(() => {});
 }
 
+function startAdHeartbeat(adId, intervalMs = 30 * 1000) {
+  const handle = setInterval(() => {
+    updateAdCreative(adId, {}).catch((err) => {
+      console.warn(`[AdGenerator] Heartbeat failed for ${adId.slice(0, 8)}: ${err.message}`);
+    });
+  }, intervalMs);
+  if (typeof handle.unref === 'function') handle.unref();
+  return () => clearInterval(handle);
+}
+
 const EXT_TO_MIME = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -550,6 +560,7 @@ export async function generateAd(projectId, options = {}) {
     image_model: imageModel || 'nano-banana-2',
   });
 
+  const stopHeartbeat = startAdHeartbeat(adId);
   try {
     // 1. Load project + foundational docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
@@ -693,6 +704,8 @@ export async function generateAd(projectId, options = {}) {
     });
     emit({ type: 'error', error: err.message });
     throw err;
+  } finally {
+    stopHeartbeat();
   }
 }
 
@@ -866,6 +879,7 @@ export async function generateAdMode2(projectId, options = {}) {
     image_model: imageModel || 'nano-banana-2',
   });
 
+  const stopHeartbeat = startAdHeartbeat(adId);
   try {
     // 1. Load project + foundational docs + template image (+ optional headline ref) in parallel
     const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
@@ -997,6 +1011,8 @@ export async function generateAdMode2(projectId, options = {}) {
     });
     emit({ type: 'error', error: err.message });
     throw err;
+  } finally {
+    stopHeartbeat();
   }
 }
 
@@ -2381,6 +2397,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
 
   emit({ type: 'status', status: 'generating_image', message: 'Preparing image generation...', progress: 5, adId });
 
+  const stopHeartbeat = startAdHeartbeat(adId);
   try {
     const project = await getProject(projectId);
     if (!project) throw new Error('Project not found');
@@ -2429,5 +2446,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
     });
     emit({ type: 'error', error: err.message });
     throw err;
+  } finally {
+    stopHeartbeat();
   }
 }
