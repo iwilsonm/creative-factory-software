@@ -2,6 +2,18 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { adjustProjectCounters } from "./projects";
 
+const TERMINAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "quality_rejected",
+  "cancelled",
+  "canceled",
+]);
+
+function isTerminalStatus(status: string | undefined) {
+  return !!status && TERMINAL_STATUSES.has(status);
+}
+
 export const getAll = query({
   args: {},
   handler: async (ctx) => {
@@ -81,6 +93,8 @@ export const getGalleryByProject = query({
       error_message: ad.error_message,
       failure_stage: ad.failure_stage,
       last_progress_at: ad.last_progress_at,
+      updated_at: ad.updated_at,
+      completed_at: ad.completed_at,
       batch_job_id: ad.batch_job_id,
       created_at: ad.created_at,
     }));
@@ -135,6 +149,8 @@ export const getSummariesByExternalIds = query({
       core_claim: ad!.core_claim,
       tags: ad!.tags || [],
       has_image: !!ad!.storageId,
+      updated_at: ad!.updated_at,
+      completed_at: ad!.completed_at,
     }));
   },
 });
@@ -177,6 +193,8 @@ export const create = mutation({
     error_message: v.optional(v.union(v.string(), v.null())),
     failure_stage: v.optional(v.union(v.string(), v.null())),
     last_progress_at: v.optional(v.string()),
+    updated_at: v.optional(v.string()),
+    completed_at: v.optional(v.string()),
     worker_lease_owner: v.optional(v.union(v.string(), v.null())),
     worker_lease_expires_at: v.optional(v.union(v.string(), v.null())),
     // Phase 1 — Staging Page + Filter agent
@@ -187,9 +205,12 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
+    const completedAt = args.completed_at || (isTerminalStatus(args.status) ? now : undefined);
     await ctx.db.insert("ad_creatives", {
       ...args,
       created_at: now,
+      updated_at: args.updated_at || now,
+      ...(completedAt ? { completed_at: completedAt } : {}),
     });
     await adjustProjectCounters(ctx, args.project_id, { adCount: 1 });
   },
@@ -226,6 +247,8 @@ export const update = mutation({
     error_message: v.optional(v.union(v.string(), v.null())),
     failure_stage: v.optional(v.union(v.string(), v.null())),
     last_progress_at: v.optional(v.string()),
+    updated_at: v.optional(v.string()),
+    completed_at: v.optional(v.string()),
     worker_lease_owner: v.optional(v.union(v.string(), v.null())),
     worker_lease_expires_at: v.optional(v.union(v.string(), v.null())),
     // Phase 1 — Staging Page + Filter agent
@@ -250,6 +273,11 @@ export const update = mutation({
     const filtered: Record<string, any> = {};
     for (const [key, value] of Object.entries(updates)) {
       if (value !== undefined) filtered[key] = value;
+    }
+    const now = new Date().toISOString();
+    filtered.updated_at = updates.updated_at || now;
+    if (isTerminalStatus(updates.status) && !filtered.completed_at && !ad.completed_at) {
+      filtered.completed_at = now;
     }
     await ctx.db.patch(ad._id, filtered);
   },
@@ -334,11 +362,14 @@ export const setFilterVerdict = mutation({
       .first();
     if (!ad) throw new Error("Ad creative not found");
     const newStatus = args.filter_verdict === "passed" ? "staging" : "quality_rejected";
+    const now = new Date().toISOString();
     await ctx.db.patch(ad._id, {
       filter_score: args.filter_score,
       filter_verdict: args.filter_verdict,
       filter_reasons: args.filter_reasons,
       status: newStatus,
+      updated_at: now,
+      ...(isTerminalStatus(newStatus) && !ad.completed_at ? { completed_at: now } : {}),
     });
   },
 });
@@ -355,9 +386,11 @@ export const forcePromote = mutation({
     if (ad.status !== "quality_rejected") {
       throw new Error(`Cannot force-promote ad with status "${ad.status}" — only "quality_rejected" is eligible`);
     }
+    const now = new Date().toISOString();
     await ctx.db.patch(ad._id, {
       status: "staging",
       filter_verdict: "passed",
+      updated_at: now,
     });
   },
 });

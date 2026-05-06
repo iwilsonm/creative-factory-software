@@ -9,6 +9,7 @@ export function buildStaleAdRepairUpdate(ad, nowIso = new Date().toISOString()) 
       error_message: null,
       failure_stage: null,
       last_progress_at: nowIso,
+      completed_at: nowIso,
     };
   }
 
@@ -20,6 +21,7 @@ export function buildStaleAdRepairUpdate(ad, nowIso = new Date().toISOString()) 
       : 'Creative direction timed out before image generation started. Please retry this ad.',
     failure_stage: isImageStage ? 'stale_generating_image_timeout' : 'stale_generating_copy_timeout',
     last_progress_at: nowIso,
+    completed_at: nowIso,
   };
 }
 

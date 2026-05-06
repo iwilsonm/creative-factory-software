@@ -87,6 +87,10 @@ function formatDateTime(dateStr) {
     d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function getAdGeneratedAt(ad) {
+  return ad?.completed_at || ad?.created_at;
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1943,7 +1947,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
   // Filtered ads based on gallery filter (type) then date range
   // Stale-detection threshold: matches backend STUCK_ADS_THRESHOLD_MIN.
-  // Vercel function maxDuration is 300s; allow a buffer before surfacing zombies.
+  // Long-running requests heartbeat; if they stop doing so, surface zombies.
   const typeFilteredAds = ads.filter(ad => {
     // Hide in-progress ads from gallery (they show in the queue instead) — but only if FRESH.
     // Ads stuck in generating_* > 5 min are zombies (Vercel function timeout, crash, etc.).
@@ -3522,7 +3526,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-0.5">
                     <span className="text-[11px] text-ed-ink3">{ad.aspect_ratio}</span>
-                    <span className="text-[11px] text-ed-ink3">{formatDateTime(ad.created_at)}</span>
+                    <span className="text-[11px] text-ed-ink3">{formatDateTime(getAdGeneratedAt(ad))}</span>
                   </div>
                   <p className="text-[12px] text-ed-ink font-medium truncate" title={ad.headline || ad.angle_name || ''}>
                     {ad.headline || ad.angle_name || 'Untitled'}
@@ -3657,7 +3661,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
                 {/* Metadata */}
                 <span className="text-[11px] text-ed-ink3 flex-shrink-0 hidden sm:inline">{ad.aspect_ratio}</span>
-                <span className="text-[11px] text-ed-ink3 flex-shrink-0 w-32 text-right hidden md:inline">{formatDateTime(ad.created_at)}</span>
+                <span className="text-[11px] text-ed-ink3 flex-shrink-0 w-32 text-right hidden md:inline">{formatDateTime(getAdGeneratedAt(ad))}</span>
                 <span className="text-[10px] px-2 py-0.5 bg-ed-bg text-ed-ink2 rounded-full flex-shrink-0 hidden sm:inline">
                   {(ad.auto_generated || ad.batch_job_id) ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                 </span>
@@ -3976,8 +3980,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-[11px] text-ed-ink3 mb-0.5">Created</p>
-                    <p className="text-ed-ink text-[12px]">{parseDate(viewAd.created_at)?.toLocaleString() || 'Unknown'}</p>
+                    <p className="text-[11px] text-ed-ink3 mb-0.5">Generated</p>
+                    <p className="text-ed-ink text-[12px]">{parseDate(getAdGeneratedAt(viewAd))?.toLocaleString() || 'Unknown'}</p>
                   </div>
                   {viewAd.drive_url && (
                     <div>

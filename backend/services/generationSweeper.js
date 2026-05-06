@@ -133,6 +133,7 @@ export function createGenerationSweeper(customDeps = {}) {
         error_message: message,
         failure_stage: mode === 'manual-recovery' ? 'manual_stale_generation_recovery' : 'stale_generation_sweeper',
         last_progress_at: nowIso,
+        completed_at: nowIso,
       });
       healed.push(summarizeRecord('ad_creatives', { ...ad, error_message: message }, heartbeatMs, nowMs));
     };
@@ -261,4 +262,3 @@ export async function getGenerationSweeperHealth(options = {}) {
     last_error: lastError,
   };
 }
-

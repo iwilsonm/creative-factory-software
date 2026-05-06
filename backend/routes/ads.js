@@ -2,10 +2,9 @@ import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, markStaleAdsAsFailed, uploadBuffer, setProjectProductImage, convexClient, api } from '../convexClient.js';
 
-// Vercel function maxDuration for api/index.js is 300s. If a single-ad
-// generation has not written progress for this long, the live request is
-// already at or past the gateway cutoff and the UI needs a truthful terminal
-// state instead of a silent spinner.
+// Single-ad generation can now run up to the Vercel Fluid Compute ceiling, but
+// legitimate long-running requests heartbeat every 30s. No heartbeat for this
+// threshold means the request/stream is dead enough to surface a terminal state.
 const STUCK_ADS_THRESHOLD_MIN = 5;
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit, assertTemplateTagHasActiveTemplates, normalizeTemplateTag } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';

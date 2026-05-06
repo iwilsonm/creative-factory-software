@@ -11,6 +11,7 @@ describe('ad generation recovery decisions', () => {
       error_message: 'Image generation timed out before an image was saved. Please retry this ad.',
       failure_stage: 'stale_generating_image_timeout',
       last_progress_at: '2026-05-05T00:00:00.000Z',
+      completed_at: '2026-05-05T00:00:00.000Z',
     });
   });
 
@@ -32,6 +33,7 @@ describe('ad generation recovery decisions', () => {
       error_message: null,
       failure_stage: null,
       last_progress_at: '2026-05-05T00:00:00.000Z',
+      completed_at: '2026-05-05T00:00:00.000Z',
     });
   });
 

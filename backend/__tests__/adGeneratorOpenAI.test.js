@@ -78,7 +78,7 @@ vi.mock('sharp', () => ({
   })),
 }));
 
-import { generateAdMode2 } from '../services/adGenerator.js';
+import { generateAd, generateAdMode2 } from '../services/adGenerator.js';
 
 const templateBase64 = Buffer.from('template-image').toString('base64');
 const generatedImage = Buffer.from('generated-image');
@@ -132,6 +132,10 @@ function setupHappyPath() {
     reason: 'looks like an ad',
   }));
   mocks.openaiGenerateImage.mockResolvedValue({
+    imageBuffer: generatedImage,
+    mimeType: 'image/png',
+  });
+  mocks.geminiGenerateImage.mockResolvedValue({
     imageBuffer: generatedImage,
     mimeType: 'image/png',
   });
@@ -208,5 +212,36 @@ describe('GPT Image 2 ad generation plumbing', () => {
 
     expect(mocks.uploadBuffer).toHaveBeenCalledWith(generatedImage, 'image/png');
     expect(ad.status).toBe('completed');
+  });
+
+  it('records completed_at on a successful Mode 1 ad update', async () => {
+    await generateAd('project-1', {
+      uploadedImageBase64: Buffer.from('uploaded-layout').toString('base64'),
+      uploadedImageMimeType: 'image/png',
+      headline: 'Headline',
+      bodyCopy: 'Body',
+    });
+
+    expect(mocks.convexMutation).toHaveBeenCalledWith('adCreatives.update', expect.objectContaining({
+      status: 'completed',
+      completed_at: expect.any(String),
+    }));
+  });
+
+  it('records completed_at on a failed generation update', async () => {
+    mocks.geminiGenerateImage.mockRejectedValueOnce(new Error('image provider 500'));
+
+    await expect(generateAd('project-1', {
+      uploadedImageBase64: Buffer.from('uploaded-layout').toString('base64'),
+      uploadedImageMimeType: 'image/png',
+      headline: 'Headline',
+      bodyCopy: 'Body',
+    })).rejects.toThrow('image provider 500');
+
+    expect(mocks.convexMutation).toHaveBeenCalledWith('adCreatives.update', expect.objectContaining({
+      status: 'failed',
+      error_message: 'image provider 500',
+      completed_at: expect.any(String),
+    }));
   });
 });

@@ -682,6 +682,8 @@ function convexAdToRow(a) {
     error_message: a.error_message || null,
     failure_stage: a.failure_stage || null,
     last_progress_at: a.last_progress_at || null,
+    updated_at: a.updated_at || null,
+    completed_at: a.completed_at || null,
     // Phase 1 — Staging Page + Filter agent
     ad_set_id: a.ad_set_id || null,
     filter_score: a.filter_score ?? null,
@@ -728,6 +730,8 @@ function convexAdSummaryToRow(a) {
     error_message: a.error_message || null,
     failure_stage: a.failure_stage || null,
     last_progress_at: a.last_progress_at || null,
+    updated_at: a.updated_at || null,
+    completed_at: a.completed_at || null,
     has_edit_prompt: !!a.has_image_prompt,
     batch_job_id: a.batch_job_id || null,
     created_at: a.created_at,

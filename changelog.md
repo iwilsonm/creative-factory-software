@@ -1,5 +1,52 @@
 # Creative Factory — Changelog
 
+## 2026-05-06 — Raise single-ad timeout ceiling and add exact ad completion timestamps
+
+**Diagnostic findings**
+- Today's single-ad failure rate was materially higher than the 30-day baseline: 7 failed / 15 total single ads in the last 24 hours (46.7%) versus 12 failed / 75 total over 30 days (16.0%).
+- The spike was not one single cause: 4 failures were `No templates available`, 2 were image-generation timeout messages, and 1 was `[STALE-RECOVERY]` after the live request stopped heartbeating.
+- All last-24-hour single-ad rows used `nano-banana-2`; failures clustered in Mode 1 and in newer/test projects with template-library setup issues.
+- `api_costs` records cost/image counts only, not provider error rates or latency, so it could not prove a Gemini outage. It did show 8 Gemini image generations logged today and no separate error telemetry.
+
+**Cause**
+- The previous 300-second Vercel ceiling was too close to real successful single-ad latency. One observed Mode 1 success finished at 290.6s, and one observed Mode 2 success had a 672.1s completion proxy.
+- Future latency analysis was imprecise because `ad_creatives` stored `created_at` and `last_progress_at`, but not canonical `updated_at` or `completed_at`; 46 of 63 completed single-ad records in the 30-day measurement window had no usable completion timestamp.
+
+**Fix**
+- Increased `api/index.js` `maxDuration` from 300s to 800s in `vercel.json` for the Vercel Pro / Fluid Compute path.
+- Added `updated_at` and `completed_at` to `ad_creatives`.
+- Centralized timestamp writes in Convex `adCreatives.create` / `adCreatives.update`: every create/update gets `updated_at`, and terminal statuses (`completed`, `failed`, `quality_rejected`, `cancelled`, `canceled`) get `completed_at`.
+- Added timestamp propagation through `convexAdToRow` / `convexAdSummaryToRow`, Ad Studio display, single-ad success/failure writes, batch-created completed ad rows, stale recovery helpers, and the global generation sweeper.
+
+**Files modified**
+- `vercel.json`
+- `convex/schema.ts`
+- `convex/adCreatives.ts`
+- `backend/convexClient.js`
+- `backend/routes/ads.js`
+- `backend/services/adGenerator.js`
+- `backend/services/batchProcessor.js`
+- `backend/services/generationSweeper.js`
+- `backend/utils/adGenerationRecovery.js`
+- `backend/__tests__/adGenerationRecovery.test.js`
+- `backend/__tests__/adGeneratorOpenAI.test.js`
+- `backend/__tests__/generationSweeper.test.js`
+- `frontend/src/components/AdStudio.jsx`
+
+**Out of scope**
+- Backfilling `updated_at` / `completed_at` onto historical ad records.
+- Refactoring single-ad generation into a durable worker queue.
+- Changing the 10-minute heartbeat-based generation sweeper threshold.
+- Changing image model selection.
+- Touching legacy LP / quote-mining / Shopify publishing layers.
+
+**Risk + rollback**
+- Risk: 800s can use more function time for legitimately slow requests. Mitigation: the sweeper still fails non-heartbeating records after the existing 10-minute idle threshold, so dead ads do not silently wait for the full ceiling.
+- Risk: timestamp fields may expose sparse values on old rows. Mitigation: UI falls back to `created_at`, and no backfill is required.
+- Rollback: revert the timeout and timestamp commit. Existing rows with `completed_at` / `updated_at` are harmless optional fields.
+
+---
+
 ## 2026-05-06 — Add global stuck-generation sweeper and queue watchdog
 
 **Bug**

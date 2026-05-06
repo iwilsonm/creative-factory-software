@@ -53,6 +53,13 @@ const THUMB_CACHE_DIR = path.join(__adgen_dirname, '..', '.thumb-cache');
 if (!fs.existsSync(THUMB_CACHE_DIR)) {
   fs.mkdirSync(THUMB_CACHE_DIR, { recursive: true });
 }
+
+const TERMINAL_AD_STATUSES = new Set(['completed', 'failed', 'quality_rejected', 'cancelled', 'canceled']);
+
+function isTerminalAdStatus(status) {
+  return TERMINAL_AD_STATUSES.has(status);
+}
+
 async function precacheThumb(adId, imageBuffer) {
   try {
     const thumb = await sharp(imageBuffer)
@@ -64,18 +71,22 @@ async function precacheThumb(adId, imageBuffer) {
 }
 
 async function createAdCreative(fields) {
+  const now = new Date().toISOString();
   await convexClient.mutation(api.adCreatives.create, {
     ...fields,
-    last_progress_at: new Date().toISOString(),
+    last_progress_at: now,
+    ...(isTerminalAdStatus(fields.status) && !fields.completed_at ? { completed_at: now } : {}),
   });
   invalidateQueryCache('ad_creatives');
 }
 
 async function updateAdCreative(adId, fields) {
+  const now = new Date().toISOString();
   await convexClient.mutation(api.adCreatives.update, {
     externalId: adId,
-    last_progress_at: new Date().toISOString(),
     ...fields,
+    last_progress_at: fields.last_progress_at || now,
+    ...(isTerminalAdStatus(fields.status) && !fields.completed_at ? { completed_at: now } : {}),
   });
   invalidateQueryCache('ad_creatives');
 }
@@ -824,6 +835,8 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     storageId: ad.storageId || null,
     aspect_ratio: ad.aspect_ratio || '1:1',
     status: ad.status,
+    updated_at: ad.updated_at || null,
+    completed_at: ad.completed_at || null,
     imageUrl: resolvedUrl || `/api/projects/${projectId}/ads/${adId}/image`,
     thumbnailUrl: `/api/projects/${projectId}/ads/${adId}/thumbnail`,
   };

@@ -71,6 +71,7 @@ describe('generation sweeper', () => {
       status: 'failed',
       failure_stage: 'stale_generation_sweeper',
       last_progress_at: '2026-05-06T04:00:00.000Z',
+      completed_at: '2026-05-06T04:00:00.000Z',
     });
     expect(adUpdates[0].error_message).toContain('[STALE]');
   });
@@ -162,4 +163,3 @@ describe('generation sweeper', () => {
     expect(adUpdates[0].error_message).toContain('[STALE-RECOVERY]');
   });
 });
-

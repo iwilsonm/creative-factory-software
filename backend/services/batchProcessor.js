@@ -1104,6 +1104,7 @@ async function processBatchResults(batchId, job) {
         savedCount++;
         continue;
       }
+      const adCompletedAt = new Date().toISOString();
       await convexClient.mutation(api.adCreatives.create, {
         externalId: adId,
         project_id: batch.project_id,
@@ -1127,6 +1128,7 @@ async function processBatchResults(batchId, job) {
         aspect_ratio: batch.aspect_ratio,
         storageId,
         status: 'completed',
+        completed_at: adCompletedAt,
         auto_generated: true,
         template_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'uploaded'
           ? promptObj.visual_reference_id
