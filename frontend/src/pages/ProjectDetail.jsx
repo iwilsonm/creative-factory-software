@@ -30,6 +30,7 @@ const STATUS_CONFIG = {
   docs_ready: { label: 'Ready', bg: 'bg-ed-green/10', text: 'text-ed-green' },
   active: { label: 'Active', bg: 'bg-ed-green/15', text: 'text-ed-green' }
 };
+const REQUIRED_DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
 
 const LEGACY_SETTINGS_SUBTABS = {
   filter: 'automation',
@@ -254,13 +255,19 @@ export default function ProjectDetail() {
         inspiration_folder_id: data.inspiration_folder_id,
         prompt_guidelines: data.prompt_guidelines || ''
       });
-      // Fetch doc types for setup banner (only when needed)
-      if (data.status === 'setup') {
-        api.getDocs(id).then(res => {
-          const types = new Set((res?.docs || []).map(d => d.doc_type).filter(Boolean));
-          setAvailableDocTypes(types);
-        }).catch(() => {});
-      }
+      api.getDocs(id).then(res => {
+        const docs = res?.docs || [];
+        const types = new Set(docs.map(d => d.doc_type).filter(Boolean));
+        const hasAllRequiredDocs = REQUIRED_DOC_TYPES.every(type => types.has(type));
+        setAvailableDocTypes(types);
+        if (hasAllRequiredDocs && data.status === 'setup') {
+          setProject(prev => ({
+            ...(prev || data),
+            status: 'docs_ready',
+            docCount: Math.max(prev?.docCount || 0, docs.length),
+          }));
+        }
+      }).catch(() => {});
     } catch (err) {
       console.error('Failed to load project:', err);
     } finally {
@@ -353,7 +360,9 @@ export default function ProjectDetail() {
     ? allTabs.filter(t => t.id === 'tracker')
     : allTabs;
 
-  const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-ed-bg', text: 'text-ed-ink2' };
+  const hasAllRequiredDocs = REQUIRED_DOC_TYPES.every(type => availableDocTypes.has(type));
+  const effectiveProjectStatus = project.status === 'setup' && hasAllRequiredDocs ? 'docs_ready' : project.status;
+  const status = STATUS_CONFIG[effectiveProjectStatus] || { label: effectiveProjectStatus, bg: 'bg-ed-bg', text: 'text-ed-ink2' };
 
   return (
     <div className={`mx-auto px-4 sm:px-6 lg:px-8 py-8 ${tab === 'analytics' || tab === 'observation' ? '' : 'max-w-7xl'}`}>
@@ -377,7 +386,7 @@ export default function ProjectDetail() {
       </div>
 
       {/* Setup banner — visible only when project needs foundational docs */}
-      {project.status === 'setup' && (
+      {effectiveProjectStatus === 'setup' && (
         <div className="mb-6 p-4 bg-ed-gold/5 border border-ed-gold/20 rounded-[10px] fade-in">
           <p className="text-[13px] font-medium text-ed-ink mb-3">Complete foundational docs to get started</p>
           <div className="grid grid-cols-2 gap-2 mb-3">
@@ -667,7 +676,7 @@ export default function ProjectDetail() {
 
           {settingsSubTab === 'docs' && (
             <ErrorBoundary level="tab" key="docs">
-              <FoundationalDocs projectId={id} projectStatus={project.status} />
+              <FoundationalDocs projectId={id} projectStatus={effectiveProjectStatus} onDocsChanged={loadProject} />
             </ErrorBoundary>
           )}
           {settingsSubTab === 'meta' && (

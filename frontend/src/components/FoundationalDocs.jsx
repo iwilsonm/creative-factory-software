@@ -357,7 +357,7 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
   );
 }
 
-export default function FoundationalDocs({ projectId, projectStatus }) {
+export default function FoundationalDocs({ projectId, projectStatus, onDocsChanged }) {
   const toast = useToast();
   const { data: docsData, loading, refetch: loadDocs } = useAsyncData(
     () => api.getDocs(projectId),
@@ -498,6 +498,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       setUploadDocs({ research: '', avatar: '', offer_brief: '', necessary_beliefs: '' });
       invalidateProjectCache(projectId);
       loadDocs();
+      onDocsChanged?.();
     } catch (err) {
       setGenError(err.message);
     } finally {
@@ -586,6 +587,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         genStartTimeRef.current = null;
         invalidateProjectCache(projectId);
         loadDocs();
+        onDocsChanged?.();
       }, 500);
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
@@ -644,6 +646,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         genStartTimeRef.current = null;
         invalidateProjectCache(projectId);
         loadDocs();
+        onDocsChanged?.();
       }, 500);
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
