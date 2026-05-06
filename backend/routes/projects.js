@@ -1,12 +1,10 @@
 import { Router } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { requireAuth, requireRole } from '../auth.js';
 import {
-  createProject,
   getProject,
   getProjectSummaries,
   getProjectOptions,
@@ -17,7 +15,7 @@ import {
   getStorageUrl,
   setProjectProductImage
 } from '../convexClient.js';
-import { adoptSharedTemplatesIntoProject } from '../services/templateAdoption.js';
+import { createProjectWithTemplateSeeding } from '../services/projectCreation.js';
 
 const imgUpload = multer({
   dest: os.tmpdir(),
@@ -104,9 +102,7 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
     const { name, brand_name, niche, product_description, drive_folder_id, inspiration_folder_id } = req.body;
     if (!name) return res.status(400).json({ error: 'Project name is required' });
 
-    const id = uuidv4();
-    await createProject({
-      id,
+    const { project, templateSeeding } = await createProjectWithTemplateSeeding({
       name,
       brand_name: brand_name || '',
       niche: niche || '',
@@ -114,24 +110,11 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
       drive_folder_id: drive_folder_id || '',
       inspiration_folder_id: inspiration_folder_id || ''
     });
-
-    let adoption = { copied: 0, skipped: 0, failed: [] };
-    try {
-      adoption = await adoptSharedTemplatesIntoProject(id);
-    } catch (adoptionErr) {
-      console.warn(`[Projects] Template adoption failed for new project ${id}: ${adoptionErr.message}`);
-      adoption = {
-        copied: 0,
-        skipped: 0,
-        failed: [{ error: adoptionErr.message || 'Template adoption failed' }],
-      };
-    }
-    const project = await getProject(id);
     res.status(201).json({
       ...project,
-      template_adoption: adoption,
-      template_adoption_warning: adoption.failed.length > 0
-        ? `${adoption.failed.length} template${adoption.failed.length === 1 ? '' : 's'} could not be copied.`
+      template_seeding: templateSeeding,
+      template_seeding_warning: templateSeeding.failed.length > 0
+        ? `${templateSeeding.failed.length} template${templateSeeding.failed.length === 1 ? '' : 's'} could not be copied.`
         : null,
     });
   } catch (err) {

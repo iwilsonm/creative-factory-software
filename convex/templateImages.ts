@@ -59,6 +59,7 @@ export const create = mutation({
     tags: v.optional(v.array(v.string())),
     source_template_id: v.optional(v.string()),
     source_project_id: v.optional(v.string()),
+    source_storage_id: v.optional(v.string()),
     analysis: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -82,6 +83,7 @@ export const update = mutation({
     analysis: v.optional(v.string()),
     source_template_id: v.optional(v.string()),
     source_project_id: v.optional(v.string()),
+    source_storage_id: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const img = await ctx.db

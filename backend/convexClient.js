@@ -247,7 +247,7 @@ export async function getAllProjectsWithStats() {
 // them; the Filter service uses internal constants in creativeFilterService.js.
 // Do not re-add without a real consumer.
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'template_seeding_status', 'template_seeding_error', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
     // Phase 1 — Staging Page + Director cycle config
     'default_campaign_id', 'adset_default_template', 'ad_sets_per_cycle', 'ads_per_ad_set',
     // Phase 2A — Meta integration
@@ -328,6 +328,8 @@ function convexProjectToRow(p) {
     prompt_guidelines: p.prompt_guidelines || '',
     product_image_storageId: p.product_image_storageId || null,
     status: p.status || 'setup',
+    template_seeding_status: p.template_seeding_status || 'complete',
+    template_seeding_error: p.template_seeding_error || '',
     // Dacia Creative Filter per-project config
     scout_enabled: p.scout_enabled ?? null,
     scout_default_campaign: p.scout_default_campaign || '',
@@ -374,6 +376,8 @@ function convexProjectSummaryToRow(p) {
     brand_name: p.brand_name || null,
     niche: p.niche || null,
     status: p.status || 'setup',
+    template_seeding_status: p.template_seeding_status || 'complete',
+    template_seeding_error: p.template_seeding_error || '',
     docCount: p.docCount ?? 0,
     adCount: p.adCount ?? 0,
     lpCount: p.lpCount ?? 0,
@@ -388,6 +392,8 @@ function convexProjectOptionToRow(p) {
     brand_name: p.brand_name || null,
     displayName: p.displayName || p.brand_name || p.name,
     status: p.status || 'setup',
+    template_seeding_status: p.template_seeding_status || 'complete',
+    template_seeding_error: p.template_seeding_error || '',
   };
 }
 

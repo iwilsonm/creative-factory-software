@@ -25,8 +25,14 @@ function templateHasTag(template, tag) {
  * Up to 500 files at a time (HARD_CAP_FILES is the absolute ceiling), 5 in parallel.
  */
 export default function TemplateImages({ projectId }) {
+  const { data: project, setData: setProject, refetch: refetchProject } = useAsyncData(
+    () => api.getProject(projectId),
+    [projectId],
+    { initialData: null }
+  );
+
   // Uploaded templates (the only source — Drive sync was dropped)
-  const { data: templates, setData: setTemplates, loading: loadingTemplates } = useAsyncData(
+  const { data: templates, setData: setTemplates, loading: loadingTemplates, refetch: refetchTemplates } = useAsyncData(
     () => api.getTemplates(projectId, { includeArchived: true }).then(d => d.templates || []),
     [projectId]
   );
@@ -44,6 +50,7 @@ export default function TemplateImages({ projectId }) {
   const [dragOver, setDragOver] = useState(false);
   const [pendingDeleteImage, setPendingDeleteImage] = useState(null);
   const [selectedTemplateTag, setSelectedTemplateTag] = useState('');
+  const [retryingSeed, setRetryingSeed] = useState(false);
   const fileInputRef = useRef(null);
 
   const uploading = !!batch && batch.completed < batch.total;
@@ -226,6 +233,27 @@ export default function TemplateImages({ projectId }) {
     }
   };
 
+  const handleRetryTemplateSeeding = async () => {
+    setRetryingSeed(true);
+    setError('');
+    try {
+      const result = await api.adoptSharedTemplates(projectId);
+      setProject(prev => ({
+        ...(prev || {}),
+        template_seeding_status: result.status || (result.failed?.length ? 'failed' : 'complete'),
+        template_seeding_error: result.failed?.length
+          ? `${result.failed.length} template${result.failed.length === 1 ? '' : 's'} could not be copied.`
+          : (result.warning || ''),
+      }));
+      await Promise.all([refetchTemplates(), refetchProject()]);
+    } catch (err) {
+      setError(err.message || 'Template inheritance retry failed.');
+      await refetchProject();
+    } finally {
+      setRetryingSeed(false);
+    }
+  };
+
   if (loadingTemplates) {
     return <div className="text-ed-ink3 text-center py-8 animate-pulse text-sm">Loading templates...</div>;
   }
@@ -239,6 +267,33 @@ export default function TemplateImages({ projectId }) {
       {error && (
         <div className="p-3 bg-ed-rust/10 border border-ed-rust/20 text-ed-rust text-[13px] rounded-xl">
           {error}
+        </div>
+      )}
+
+      {project && project.template_seeding_status && project.template_seeding_status !== 'complete' && (
+        <div className="p-4 rounded-xl border border-ed-accent/20 bg-ed-accent/5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-[13px] font-semibold text-ed-ink">
+              {project.template_seeding_status === 'in_progress'
+                ? 'Template inheritance is running'
+                : project.template_seeding_status === 'pending'
+                  ? 'Template inheritance is pending'
+                  : 'Template inheritance needs attention'}
+            </p>
+            <p className="text-[12px] text-ed-ink3 mt-0.5">
+              {project.template_seeding_status === 'failed'
+                ? (project.template_seeding_error || 'Some templates could not be copied into this project. Retry to copy any missing templates.')
+                : 'New projects copy templates from existing projects once. This library will become independent after the copy finishes.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetryTemplateSeeding}
+            disabled={retryingSeed}
+            className="ed-ghost text-[12px] px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {retryingSeed ? 'Retrying...' : 'Retry inheritance'}
+          </button>
         </div>
       )}
 

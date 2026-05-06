@@ -1,5 +1,54 @@
 # Creative Factory — Changelog
 
+## 2026-05-06 — Lock new-project template inheritance to storage-provenance copies
+
+**Bug**
+- New projects could still end up with an empty Template Library, causing Ad Studio Mode 2 / random-template generation to fail with: "No templates available. Upload templates in the Template Library first."
+- Prior "adopt shared templates" attempts did not persist a project-level seeding status and deduped by template identity instead of storage provenance, so future agents could silently reintroduce empty or duplicated libraries.
+
+**Cause**
+- `backend/services/templateAdoption.js` deduped by `source_template_id || externalId`, not the locked source-storage provenance. Once templates were copied between projects, the system could no longer reliably tell which inherited rows represented the same original uploaded blob.
+- `projects` had no `template_seeding_status` / `template_seeding_error`, so failures during inheritance were invisible except as downstream empty-library generation errors.
+
+**Fix**
+- Added project seeding fields: `template_seeding_status` and `template_seeding_error`.
+- Added template provenance field: `source_storage_id`.
+- Replaced template adoption with a one-time storage-provenance seeder:
+  - snapshots all active stored templates from every other project at seeding start,
+  - caps source scan at 5000 rows,
+  - dedupes by `source_storage_id || storageId`,
+  - downloads each selected source blob and uploads a fresh Convex storage blob for the new project,
+  - writes copied template rows with `source_storage_id`, `source_template_id`, and `source_project_id`,
+  - updates project seeding status to `in_progress`, then `complete` or `failed`.
+- Project creation now goes through `createProjectWithTemplateSeeding()` so the Express route has a single sanctioned creation path.
+- Template Library now shows a seeding status banner and retry button when inheritance is pending/in-progress/failed.
+
+**Files modified**
+- `convex/schema.ts`
+- `convex/projects.ts`
+- `convex/templateImages.ts`
+- `backend/convexClient.js`
+- `backend/routes/projects.js`
+- `backend/routes/templates.js`
+- `backend/services/projectCreation.js`
+- `backend/services/templateAdoption.js`
+- `backend/__tests__/templateAdoption.test.js`
+- `frontend/src/api.js`
+- `frontend/src/components/TemplateImages.jsx`
+
+**Out of scope**
+- Perceptual/image hashing for near-duplicate templates.
+- Pagination beyond the 5000 source-row cap.
+- Lazy/background seeding outside the project creation request.
+- Migrating every historical copied template row to backfill `source_storage_id`; retry/seeding logic can infer provenance from old `source_template_id` where the source row still exists.
+
+**Risk + rollback**
+- Risk: project creation now does more storage work inside the request. The locked requirement explicitly chose eager full-copy at creation time; the 5000-row cap limits runaway work.
+- Risk: if a source template's storage blob is already missing, that one copy fails and the project remains usable with `template_seeding_status='failed'` plus a retry banner.
+- Rollback: revert this entry's code changes and redeploy Convex schema/functions + Vercel. Existing copied template rows remain valid because they own their duplicated storage blobs.
+
+---
+
 ## 2026-05-01 — Bump Vercel maxDuration to 300s (Pro tier) + clean up orphaned batches
 
 **Problem**

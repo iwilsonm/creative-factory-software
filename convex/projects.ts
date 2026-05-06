@@ -8,6 +8,8 @@ type ProjectRecord = {
   brand_name?: string;
   niche?: string;
   status?: string;
+  template_seeding_status?: string;
+  template_seeding_error?: string;
   docCount?: number;
   adCount?: number;
   lpCount?: number;
@@ -75,6 +77,8 @@ function toProjectSummary(project: ProjectRecord, stats: ProjectStats) {
     brand_name: project.brand_name,
     niche: project.niche,
     status: project.status ?? "setup",
+    template_seeding_status: project.template_seeding_status ?? "complete",
+    template_seeding_error: project.template_seeding_error ?? "",
     ...stats,
   };
 }
@@ -119,6 +123,8 @@ export const create = mutation({
       lpCount: 0,
       lpPublishedCount: 0,
       status: "setup",
+      template_seeding_status: "pending",
+      template_seeding_error: "",
       created_at: now,
       updated_at: now,
     });
@@ -153,6 +159,8 @@ export const update = mutation({
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
     status: v.optional(v.string()),
+    template_seeding_status: v.optional(v.string()),
+    template_seeding_error: v.optional(v.string()),
     // Creative Filter QA + Ready-to-Post defaults
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
@@ -283,6 +291,8 @@ export const getOptions = query({
       brand_name: project.brand_name,
       displayName: project.brand_name || project.name,
       status: project.status ?? "setup",
+      template_seeding_status: project.template_seeding_status ?? "complete",
+      template_seeding_error: project.template_seeding_error ?? "",
     }));
   },
 });

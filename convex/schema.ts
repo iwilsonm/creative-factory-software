@@ -42,6 +42,8 @@ export default defineSchema({
     lpCount: v.optional(v.float64()),
     lpPublishedCount: v.optional(v.float64()),
     status: v.optional(v.string()),
+    template_seeding_status: v.optional(v.string()),
+    template_seeding_error: v.optional(v.string()),
     // Creative Filter QA + Ready-to-Post defaults — per-project config
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
@@ -105,6 +107,7 @@ export default defineSchema({
     analysis: v.optional(v.string()),
     source_template_id: v.optional(v.string()),
     source_project_id: v.optional(v.string()),
+    source_storage_id: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.optional(v.string()),
   })

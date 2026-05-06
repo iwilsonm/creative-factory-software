@@ -59,6 +59,7 @@ function templateResponse(req, template) {
     analysis: template.analysis || null,
     source_template_id: template.source_template_id || null,
     source_project_id: template.source_project_id || null,
+    source_storage_id: template.source_storage_id || null,
     created_at: template.created_at,
     updated_at: template.updated_at || null,
     imageUrl: template.imageUrl || null,
