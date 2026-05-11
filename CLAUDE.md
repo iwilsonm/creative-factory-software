@@ -31,7 +31,7 @@ A single-tenant web app for direct response copywriters and e-commerce brands. S
 7. **Autonomous Agent System** — Three agents (Fixer, Creative Filter, Director) that auto-test, auto-heal, score ads, create flex ads, plan batches, auto-generate LPs, and learn from results.
 
 **Live at**: `creative-factory-software.vercel.app` (Vercel Pro)
-**Convex deployment**: `dev:elated-mastiff-709` at `https://elated-mastiff-709.convex.cloud` (single deployment serves both dev + prod traffic for this project)
+**Convex deployment**: `dev:elated-mastiff-709` at `https://elated-mastiff-709.convex.cloud` (single Creative Factory deployment; Marco production data lives here)
 **GitHub**: `iwilsonm/creative-factory-software` (auto-deploy from main → Vercel)
 
 ### Tech Stack
@@ -40,7 +40,7 @@ A single-tenant web app for direct response copywriters and e-commerce brands. S
 |-------|------------|
 | Frontend | React 18 + Vite 5.4 + Tailwind CSS 3.4 + React Router 6 |
 | Backend | Node.js 22 LTS + Express 4.21 |
-| Database | Convex (cloud-hosted, schema-enforced, 29 tables) |
+| Database | Convex (cloud-hosted, schema-enforced, 33 tables) |
 | File Storage | Convex blob storage |
 | LLM (text) | OpenAI — GPT-5.2, GPT-4.1, GPT-4.1-mini, o3-deep-research |
 | LLM (copy) | Anthropic — Claude Opus 4.6, Claude Sonnet 4.6 |
@@ -50,11 +50,11 @@ A single-tenant web app for direct response copywriters and e-commerce brands. S
 | Auth | bcrypt + express-session + Convex-backed session store + role-based access (Admin/Manager/Poster) |
 | Security | helmet (CSP), express-rate-limit, SSRF protection, field whitelisting |
 | Scheduling | Inline service calls during Director runs (`creativeFilterService.js`); the legacy `scheduler.js` cron poll-loop is gated off in Vercel via `if (!process.env.VERCEL)` |
-| Hosting | **Vercel Pro** — serverless functions, `maxDuration: 300s`, `api/index.js` is the catch-all Express handler; `api/health.js` is a separate stub |
+| Hosting | **Vercel Pro** — serverless functions, `maxDuration: 800s`, `api/index.js` is the catch-all Express handler; `api/health.js` is a separate stub |
 
 ### Deployment
 
-**Hosting**: Vercel Pro. Auto-deploys on `git push origin main`. Function `maxDuration: 300s` is configured in `vercel.json` (handles 18-ad batches comfortably; Phase 4's sub-angle generation may need 800s with Fluid Compute).
+**Hosting**: Vercel Pro. Auto-deploys on `git push origin main`. Function `maxDuration: 800s` is configured in `vercel.json`; Vercel Cron runs Meta refresh, batch processing, generation sweeper, observation, and the daily Director cron. Keep the deployment bound to `elated-mastiff-709`.
 
 **Frontend + Backend**: ship together via `git push origin main`. Vercel handles install + build + deploy.
 
@@ -981,7 +981,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 14. **No enum for status strings** — `"selected"`, `"ready_to_post"`, `"posted"`, `"analyzing"` are raw strings everywhere. Renaming requires updating every file that references them.
 
-15. **Vercel function constraints** — `maxDuration: 300s` (configured in `vercel.json`), per-function memory cap. Long-running Director batches with 18+ ads typically complete in 2-3 min. Phase 4's sub-angle generation may need a bump to 800s with Fluid Compute.
+15. **Vercel function constraints** — `maxDuration: 800s` (configured in `vercel.json`), per-function memory cap. Long-running Director batches with 18+ ads typically complete in 2-3 min. Phase 4's sub-angle generation may need a bump to 800s with Fluid Compute.
 
 16. **`conductorLearning.js` bug** — Has `messages.filter is not a function` error in learning step. Data shape issue, pre-existing.
 

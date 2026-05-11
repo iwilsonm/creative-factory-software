@@ -26,6 +26,7 @@ import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
 import {
   buildHeadlineHistoryEntry,
+  filterAngleSignalHeadlines,
   filterSceneAlignedHeadlines,
   filterHeadlineCandidatePool,
   normalizeHeadlineText,
@@ -312,10 +313,12 @@ export async function runBatch(batchId, onProgress, options = {}) {
 
     await throwIfCancelled();
     // Store prompts with headline/body in DB (exclude base64 image data to keep DB size reasonable)
+    console.log(`[BatchProcessor] Stage 3 prompts generated; persisting ${prompts.length} prompts to Convex (batch ${batchId.slice(0, 8)})`);
     await updateBatchHeartbeat(batchId, {
       gpt_prompts: JSON.stringify(prompts.map(serializePromptForStorage)),
       status: 'submitting'
     });
+    console.log(`[BatchProcessor] Prompts persisted; preparing Gemini Batch submission (batch ${batchId.slice(0, 8)})`);
     emit({ type: 'status', status: 'submitting', message: 'Submitting to Gemini Batch API...' });
 
     // Load product image if configured (from Convex storage)
@@ -348,7 +351,8 @@ export async function runBatch(batchId, onProgress, options = {}) {
     console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} submitted. Gemini job: ${geminiBatchName}`);
 
   } catch (err) {
-    const errorMsg = `Pipeline failed: ${err.message}`;
+    const isBillingExhausted = err?.code === 'BILLING_EXHAUSTED';
+    const errorMsg = isBillingExhausted ? err.message : `Pipeline failed: ${err.message}`;
     emit({ type: 'error', error: errorMsg });
     console.error(`[BatchProcessor] Batch ${batchId.slice(0, 8)} pipeline failed:`, err.message);
     console.error(`[BatchProcessor] Stack:`, err.stack?.split('\n').slice(0, 3).join('\n'));
@@ -359,6 +363,9 @@ export async function runBatch(batchId, onProgress, options = {}) {
       error_message: err.message,
       error_status: err.status ?? err.statusCode ?? null,
       error_type: err.error?.type ?? err.type ?? null,
+      error_code: err.code ?? null,
+      provider: err.provider ?? null,
+      model: err.model ?? null,
     };
     // Mark batch as failed — retry the status update in case Convex is also having issues
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -452,12 +459,26 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   const initialCandidates = Array.isArray(headlineResult.headlines) ? headlineResult.headlines : [];
   const sceneAlignedPool = filterSceneAlignedHeadlines(initialCandidates, angleBrief);
   let sceneFallbackUsed = false;
-  const initialHeadlinePool = sceneAlignedPool.survivors.length > 0
+  const sceneHeadlinePool = sceneAlignedPool.survivors.length > 0
     ? sceneAlignedPool.survivors
     : initialCandidates;
   if (sceneAlignedPool.sceneLocked && sceneAlignedPool.survivors.length === 0 && initialCandidates.length > 0) {
     sceneFallbackUsed = true;
     console.warn(`[BatchProcessor] Stage 1 scene alignment filtered every headline for batch ${batchId}; falling back to ranked candidates so generation can continue.`);
+  }
+  const angleSignalPool = filterAngleSignalHeadlines(sceneHeadlinePool, angleBrief);
+  if (angleSignalPool.active) {
+    console.log(`[BatchProcessor] Stage 1 angle-signal filter: ${angleSignalPool.survivors.length}/${sceneHeadlinePool.length} survived for angle "${batch.angle_name || angleBrief?.name || 'general'}"`);
+  }
+  if (angleSignalPool.active && angleSignalPool.survivors.length === 0 && sceneHeadlinePool.length > 0) {
+    const full = `[Stage 1] Generated ${initialCandidates.length} headlines for angle "${batch.angle_name || angleBrief?.name || 'general'}" but none reflected the angle's positioning. Tighten the angle's structured fields or check Stage 1 prompt.`;
+    const message = full.length > 480 ? full.slice(0, 477) + '...' : full;
+    throw new Error(message);
+  }
+  const initialHeadlinePool = angleSignalPool.active ? angleSignalPool.survivors : sceneHeadlinePool;
+  let angleSignalLimited = angleSignalPool.active && angleSignalPool.survivors.length < batch.batch_size;
+  if (angleSignalLimited) {
+    console.warn(`[BatchProcessor] Stage 1 angle-signal filter left ${angleSignalPool.survivors.length}/${batch.batch_size} usable headlines for angle "${batch.angle_name || angleBrief?.name || 'general'}"; using survivors without regeneration.`);
   }
   const dedupedPool = filterHeadlineCandidatePool(initialHeadlinePool, priorHeadlines);
   let selection = selectDiverseHeadlines(dedupedPool.survivors, batch.batch_size);
@@ -465,8 +486,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   let regenCandidateCount = 0;
   let regenDedupedPool = null;
   let regenSceneAlignedPool = null;
+  let regenAngleSignalPool = null;
 
-  if (finalHeadlines.length < batch.batch_size) {
+  if (finalHeadlines.length < batch.batch_size && !angleSignalLimited) {
     const shortfall = batch.batch_size - finalHeadlines.length;
     const regenCount = shortfall + Math.max(3, Math.min(6, shortfall));
     console.log(`[BatchProcessor] Stage 1 shortfall: ${shortfall} slots missing after dedup/history filtering, regenerating ${regenCount} candidates`);
@@ -492,12 +514,20 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
       ...(Array.isArray(regenResult.headlines) ? regenResult.headlines : []),
     ].filter((headline) => !selectedNormalized.has(normalizeHeadlineText(headline.headline)));
     regenSceneAlignedPool = filterSceneAlignedHeadlines(secondPassPool, angleBrief);
-    const regenHeadlinePool = regenSceneAlignedPool.survivors.length > 0
+    const regenSceneHeadlinePool = regenSceneAlignedPool.survivors.length > 0
       ? regenSceneAlignedPool.survivors
       : secondPassPool;
     if (regenSceneAlignedPool.sceneLocked && regenSceneAlignedPool.survivors.length === 0 && secondPassPool.length > 0) {
       sceneFallbackUsed = true;
       console.warn(`[BatchProcessor] Stage 1 regeneration scene alignment filtered every headline for batch ${batchId}; falling back to ranked candidates.`);
+    }
+    regenAngleSignalPool = filterAngleSignalHeadlines(regenSceneHeadlinePool, angleBrief);
+    if (regenAngleSignalPool.active) {
+      console.log(`[BatchProcessor] Stage 1 regeneration angle-signal filter: ${regenAngleSignalPool.survivors.length}/${regenSceneHeadlinePool.length} survived for angle "${batch.angle_name || angleBrief?.name || 'general'}"`);
+    }
+    const regenHeadlinePool = regenAngleSignalPool.active ? regenAngleSignalPool.survivors : regenSceneHeadlinePool;
+    if (regenAngleSignalPool.active && regenAngleSignalPool.survivors.length === 0 && regenSceneHeadlinePool.length > 0) {
+      console.warn(`[BatchProcessor] Stage 1 regeneration angle-signal filter rejected all ${regenSceneHeadlinePool.length} candidates for angle "${batch.angle_name || angleBrief?.name || 'general'}"; keeping existing survivors.`);
     }
     regenDedupedPool = filterHeadlineCandidatePool(regenHeadlinePool, regenSeedHistory);
     selection = selectDiverseHeadlines(regenDedupedPool.survivors, batch.batch_size, finalHeadlines);
@@ -514,7 +544,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     const regenInfo = regenCandidateCount > 0
       ? ` (regen produced ${regenCandidateCount} more, still 0 survived)`
       : '';
-    const full = `[Stage 1] All ${totalCandidates} headlines from Claude filtered out` + regenInfo +
+    const full = `[Stage 1] All ${totalCandidates} headlines from the LLM filtered out` + regenInfo +
       ` — ${sceneRejected} rejected by scene alignment (${sceneSurvived} survived), ` +
       `${dedupRejected} rejected by history/in-batch dedup. ` +
       `Check the angle's scene constraints or recent headline history.`;
@@ -533,11 +563,19 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     dedupedPool.rejectedByHistory.length + (regenDedupedPool?.rejectedByHistory.length || 0);
   const sceneAlignmentRejections =
     sceneAlignedPool.rejected.length + (regenSceneAlignedPool?.rejected.length || 0);
+  const angleSignalRejections =
+    angleSignalPool.rejected.length + (regenAngleSignalPool?.rejected?.length || 0);
   const sceneAlignmentReasonCounts = {
     ...sceneAlignedPool.reasonCounts,
   };
   for (const [reason, count] of Object.entries(regenSceneAlignedPool?.reasonCounts || {})) {
     sceneAlignmentReasonCounts[reason] = (sceneAlignmentReasonCounts[reason] || 0) + count;
+  }
+  const angleSignalReasonCounts = {
+    ...angleSignalPool.reasonCounts,
+  };
+  for (const [reason, count] of Object.entries(regenAngleSignalPool?.reasonCounts || {})) {
+    angleSignalReasonCounts[reason] = (angleSignalReasonCounts[reason] || 0) + count;
   }
   const headlineDiagnostics = {
     scene_locked: isSceneLockedAngle(angleBrief),
@@ -546,6 +584,10 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     scene_alignment_rejections: sceneAlignmentRejections,
     scene_alignment_reason_counts: sceneAlignmentReasonCounts,
     scene_alignment_fallback_used: sceneFallbackUsed,
+    angle_signal_filter_active: angleSignalPool.active,
+    angle_signal_rejections: angleSignalRejections,
+    angle_signal_reason_counts: angleSignalReasonCounts,
+    angle_signal_limited: angleSignalLimited,
     duplicate_rejections: duplicateRejections,
     history_rejections: historyRejections,
     lane_count: Object.keys(laneDistribution).length,
@@ -555,7 +597,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   };
 
   console.log(
-    `[BatchProcessor] Stage 1 complete: ${initialCandidates.length + regenCandidateCount} generated, ${sceneAlignmentRejections} scene rejects, ${duplicateRejections} intra-batch rejects, ${historyRejections} historical rejects, ${finalHeadlines.length} selected`
+    `[BatchProcessor] Stage 1 complete: ${initialCandidates.length + regenCandidateCount} generated, ${sceneAlignmentRejections} scene rejects, ${angleSignalRejections} angle-signal rejects, ${duplicateRejections} intra-batch rejects, ${historyRejections} historical rejects, ${finalHeadlines.length} selected`
   );
   await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({
@@ -732,7 +774,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           project, adSpecs, imageData,
           batch.aspect_ratio || '1:1',
           angleBrief,
-          { documentaryMode: documentaryVisuals }
+          { documentaryMode: documentaryVisuals, audienceContextSource: docs }
         );
 
         // Apply prompt guidelines to each prompt individually
@@ -880,7 +922,7 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
         responseModalities: ['TEXT', 'IMAGE'],
         imageConfig: {
           aspectRatio: aspectRatio || '1:1',
-          imageSize: '2K'
+          imageSize: '1K'
         }
       }
     };

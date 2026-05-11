@@ -14,6 +14,7 @@ const LEASE_MS = 4 * 60 * 1000;
 const PRE_GEMINI_STALE_MS = 6 * 60 * 1000;
 const SAVING_RESULTS_STALE_MS = 10 * 60 * 1000;
 const MAX_BATCH_RUNS_PER_TICK = 1;
+const MAX_QUEUED_TEST_STARTS_PER_TICK = 1;
 const PRE_GEMINI_RETRY_LIMIT = 2;
 const ACTIVE_STATUSES = new Set(['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
 
@@ -117,6 +118,10 @@ function isStale(batch, staleMs, now = Date.now()) {
   return !Number.isFinite(ts) || now - ts > staleMs;
 }
 
+function isBillingExhaustedMessage(message) {
+  return /BILLING_EXHAUSTED|account has zero usable quota|Top up billing|insufficient_quota|credit balance is too low|enable billing|set up billing/i.test(String(message || ''));
+}
+
 async function runClaimedBatch(batchId, source, owner) {
   if (runningBatchIds.has(batchId)) return { started: false, reason: 'already_running' };
   runningBatchIds.add(batchId);
@@ -175,6 +180,21 @@ async function handleClaimedActiveBatch(batch, owner) {
   if (['generating_prompts', 'submitting'].includes(batch.status) && !batch.gemini_batch_job) {
     if (isStale(batch, PRE_GEMINI_STALE_MS, now)) {
       const detectedAt = new Date().toISOString();
+      if (isBillingExhaustedMessage(batch.error_message)) {
+        await updateBatchJob(batch.id, {
+          status: 'failed',
+          error_message: batch.error_message,
+          stale_detected_at: detectedAt,
+          last_heartbeat_at: detectedAt,
+          pipeline_state: JSON.stringify({
+            stage: 'billing_exhausted_pre_gemini',
+            failed_at: detectedAt,
+            previous_status: batch.status,
+            last_heartbeat_at: batch.last_heartbeat_at || null,
+          }),
+        });
+        return 'failed';
+      }
       const retryCount = batch.retry_count || 0;
       if (retryCount < PRE_GEMINI_RETRY_LIMIT) {
         await updateBatchJob(batch.id, {
@@ -288,6 +308,11 @@ async function resumeBackgroundDirectorTests() {
   return state.lastConductorResumeResult;
 }
 
+async function runQueuedDirectorTests(owner) {
+  const { startQueuedTestRuns } = await import('./conductorEngine.js');
+  return await startQueuedTestRuns({ owner, limit: MAX_QUEUED_TEST_STARTS_PER_TICK, leaseMs: LEASE_MS });
+}
+
 async function schedulerTick(options = {}) {
   if (tickInProgress) return;
   tickInProgress = true;
@@ -296,12 +321,13 @@ async function schedulerTick(options = {}) {
   try {
     await pollActiveBatches(owner);
     const conductorResumeResult = await resumeBackgroundDirectorTests();
+    const conductorQueueResult = await runQueuedDirectorTests(owner);
     await runDueScheduledBatches();
     const queueResult = await runQueuedBatches(owner);
     state.lastTickAt = new Date().toISOString();
     state.lastError = null;
     state.lastCronResult = queueResult;
-    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult, conductor: conductorResumeResult };
+    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult, conductor: conductorResumeResult, conductorQueue: conductorQueueResult };
   } catch (err) {
     state.lastError = err.message;
     console.error('[Scheduler] Tick failed:', err.message);

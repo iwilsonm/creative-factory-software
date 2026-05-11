@@ -5,6 +5,7 @@ import TemplateTagHelp from './TemplateTagHelp';
 import { useToast } from './Toast';
 import BatchRow from './BatchRow';
 import { usePolling } from '../hooks/usePolling';
+import { ensureArray } from '../utils/collections';
 import {
   CRON_PRESETS, INTERVAL_UNITS, ASPECT_RATIOS,
   STATUS_COLORS, STATUS_LABELS,
@@ -16,6 +17,7 @@ import {
 const TEMPLATE_RANDOM = 'random';
 const TEMPLATE_UPLOAD = 'upload';
 const TEMPLATE_SELECT = 'select';
+const CUSTOM_ANGLE_MODE = '__custom__';
 
 const ACTIVE_BATCH_STATUSES = new Set(['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
 const LOCAL_BATCH_PROTECT_MS = 2 * 60 * 1000;
@@ -66,7 +68,7 @@ function upsertBatchIntoList(list, batch) {
 }
 
 
-export default function BatchManager({ projectId, project, onBatchComplete }) {
+export default function BatchManager({ projectId, project, conductorAngles = [], onBatchComplete }) {
   const toast = useToast();
   const [expanded, setExpanded] = useState(false);
   const [batches, setBatches] = useState([]);
@@ -77,6 +79,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   // Create form
   const [batchSize, setBatchSize] = useState(5);
   const [batchAngle, setBatchAngle] = useState('');
+  const [batchAngleModeOverride, setBatchAngleModeOverride] = useState('');
+  const batchAngleTouchedRef = useRef(false);
   const [batchAspectRatio, setBatchAspectRatio] = useState('1:1');
   const [isScheduled, setIsScheduled] = useState(false);
   const [cronPreset, setCronPreset] = useState('0 9 * * *');
@@ -93,6 +97,31 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [selectedTemplates, setSelectedTemplates] = useState([]); // [{ id, source }, ...]
   const templateTags = useMemo(() => getTemplateTags(uploadedTemplates), [uploadedTemplates]);
+
+  const activeConductorAngles = useMemo(() => {
+    return ensureArray(conductorAngles, 'BatchManager.conductorAngles')
+      .filter(a => a?.status === 'active');
+  }, [conductorAngles]);
+
+  const directOfferAngleName = useMemo(() => {
+    return activeConductorAngles.find(a => a?.is_system_default === true)?.name || '';
+  }, [activeConductorAngles]);
+
+  const batchAngleMode = useMemo(() => {
+    if (batchAngleModeOverride === CUSTOM_ANGLE_MODE) return CUSTOM_ANGLE_MODE;
+    if (!batchAngle.trim()) return '';
+    return activeConductorAngles.some(a => a?.name === batchAngle) ? batchAngle : CUSTOM_ANGLE_MODE;
+  }, [activeConductorAngles, batchAngle, batchAngleModeOverride]);
+
+  const handleBatchAngleModeChange = useCallback((value) => {
+    batchAngleTouchedRef.current = true;
+    if (value === CUSTOM_ANGLE_MODE) {
+      setBatchAngleModeOverride(CUSTOM_ANGLE_MODE);
+      return;
+    }
+    setBatchAngleModeOverride('');
+    setBatchAngle(value);
+  }, []);
 
   // Upload one-off template
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -123,6 +152,17 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       loadBatches();
     }
   }, [expanded, projectId]);
+
+  useEffect(() => {
+    batchAngleTouchedRef.current = false;
+    setBatchAngleModeOverride('');
+    setBatchAngle('');
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!directOfferAngleName || batchAngleTouchedRef.current) return;
+    setBatchAngle(prev => (prev.trim() ? prev : directOfferAngleName));
+  }, [directOfferAngleName, projectId]);
 
   // Poll for batches — 10s when any batch is active, 30s otherwise
   const hasActiveBatches = batches.some(b => ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(b.status));
@@ -513,6 +553,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
     // Load values back into the form
     setBatchSize(item.batch_size || 5);
+    batchAngleTouchedRef.current = true;
+    setBatchAngleModeOverride('');
     setBatchAngle(item.angle || '');
     setBatchAspectRatio(item.aspect_ratio || '1:1');
     setIsScheduled(!!item.scheduled);
@@ -704,13 +746,31 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   Ad Topic / Angle <span className="text-ed-ink3/60">(opt.)</span>
                   <InfoTooltip text="Optional direction for the batch. Leave blank if you want the system to use project context and template guidance only." position="right" />
                 </label>
-                <input
-                  value={batchAngle}
-                  onChange={e => setBatchAngle(e.target.value)}
+                <select
+                  data-testid="batch-angle-select"
+                  value={batchAngleMode}
+                  onChange={e => handleBatchAngleModeChange(e.target.value)}
                   disabled={creating}
-                  placeholder='e.g., "before & after"'
                   className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                />
+                >
+                  <option value="">No angle / template-only</option>
+                  {activeConductorAngles.map(a => (
+                    <option key={a.externalId || a.name} value={a.name}>
+                      {a.is_system_default ? `${a.name} (Direct Offer default)` : a.name}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_ANGLE_MODE}>Custom…</option>
+                </select>
+                {batchAngleMode === CUSTOM_ANGLE_MODE && (
+                  <input
+                    data-testid="batch-angle-input"
+                    value={batchAngle}
+                    onChange={e => { batchAngleTouchedRef.current = true; setBatchAngleModeOverride(CUSTOM_ANGLE_MODE); setBatchAngle(e.target.value); }}
+                    disabled={creating}
+                    placeholder='e.g., "before & after"'
+                    className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent mt-2"
+                  />
+                )}
               </div>
             </div>
 
@@ -1150,7 +1210,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                 data-testid="batch-generate-button"
                 onClick={handleCreate}
                 disabled={creating || submittingQueue || (isScheduled && !getEffectiveCron())}
-                className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[13px]"
+                className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors text-[13px]"
               >
                 {creating
                   ? 'Creating...'
@@ -1185,7 +1245,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     <button
                       onClick={handleSubmitQueue}
                       disabled={submittingQueue}
-                      className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[12px] py-1.5 px-3"
+                      className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors text-[12px] py-1.5 px-3"
                     >
                       {submittingQueue ? 'Submitting...' : `Submit All (${queue.length})`}
                     </button>

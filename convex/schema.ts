@@ -33,6 +33,7 @@ export default defineSchema({
     brand_name: v.optional(v.string()),
     niche: v.optional(v.string()),
     product_description: v.optional(v.string()),
+    sales_page_content: v.optional(v.string()),
     drive_folder_id: v.optional(v.string()),
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
@@ -154,6 +155,8 @@ export default defineSchema({
     gemini_batch_job: v.optional(v.string()), // Ad Studio durable image job name
     error_message: v.optional(v.union(v.string(), v.null())),
     failure_stage: v.optional(v.union(v.string(), v.null())),
+    cancellation_requested_at: v.optional(v.string()),
+    cancelled_by: v.optional(v.string()),
     last_progress_at: v.optional(v.string()),
     image_attempts: v.optional(v.string()), // JSON array of sync image-generation attempt diagnostics
     updated_at: v.optional(v.string()),
@@ -247,7 +250,7 @@ export default defineSchema({
     angle_brief: v.optional(v.string()),           // JSON: structured angle brief for downstream use
     flex_ad_id: v.optional(v.string()),            // DEPRECATED — Phase 6 — drop in 6.1 (LP feature removed)
     // LP auto-generation tracking
-    // DEPRECATED — Phase 6 — drop in 6.1 (LP feature removed from Creative Factory)
+    // DEPRECATED — Phase 6 — drop in 6.1 (LP feature removed from this Creative Factory fork)
     lp_primary_id: v.optional(v.string()),
     lp_primary_url: v.optional(v.string()),
     lp_primary_status: v.optional(v.string()),
@@ -511,7 +514,7 @@ export default defineSchema({
     name: v.string(),                    // short label
     description: v.string(),             // detailed angle for prompt injection (auto-computed from structured fields)
     prompt_hints: v.optional(v.string()), // specific creative direction
-    source: v.string(),                  // "manual" | "imported" | "auto_generated"
+    source: v.string(),                  // "manual" | "imported" | "auto_generated" | "direct_offer" | "system" (legacy read-only)
     status: v.string(),                  // "active" | "testing" | "archived"
     focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
     tags: v.optional(v.array(v.string())),
@@ -529,7 +532,7 @@ export default defineSchema({
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),  // "Avoid" — renamed to avoid JS keyword
     destination_urls: v.optional(v.string()), // JSON array of LP URLs for this angle (overrides project default)
-    is_system_default: v.optional(v.boolean()), // True for auto-created system angles (e.g., BOF)
+    is_system_default: v.optional(v.boolean()), // True for auto-created default angles (e.g., Direct Offer)
     // Operational fields
     times_used: v.number(),
     last_used_at: v.optional(v.number()),
@@ -584,10 +587,20 @@ export default defineSchema({
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
     scoring_started_at: v.optional(v.number()),
+    last_heartbeat_at: v.optional(v.string()),
+    queue_position: v.optional(v.number()),
+    queued_at: v.optional(v.string()),
+    started_at: v.optional(v.string()),
+    queued_angle_id: v.optional(v.string()),
+    worker_lease_owner: v.optional(v.string()),
+    worker_lease_expires_at: v.optional(v.string()),
     created_at: v.number(),
   })
     .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"]),
+    .index("by_project", ["project_id"])
+    .index("by_status_and_queue_position", ["status", "queue_position"])
+    .index("by_project_and_status", ["project_id", "status"])
+    .index("by_project_status_queue_position", ["project_id", "status", "queue_position"]),
 
   conductor_slots: defineTable({
     externalId: v.string(),

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import JSZip from 'jszip';
 import { api } from '../api';
 import BatchManager from './BatchManager';
@@ -42,6 +43,7 @@ const TEMPLATE_RANDOM = 'random';      // Random from Drive folder
 const TEMPLATE_UPLOAD = 'upload';      // Upload one-off image
 const TEMPLATE_SELECT = 'select';      // Pick from uploaded templates
 const TEMPLATE_PICKER_BATCH_SIZE = 24;
+const CUSTOM_ANGLE_MODE = '__custom__';
 
 function getTemplateTags(templates = []) {
   return [...new Set((templates || [])
@@ -127,7 +129,17 @@ function hasAdDetail(ad) {
 }
 
 const DISPLAYABLE_IMAGE_STATUSES = new Set(['completed', 'staging', 'quality_rejected']);
-const ACTIVE_GENERATION_STATUSES = new Set(['generating_copy', 'generating_image']);
+const ACTIVE_GENERATION_STATUSES = new Set(['pending', 'queued', 'preparing', 'generating_copy', 'generating_image']);
+
+function generationErrorUpdates(event) {
+  return {
+    error: event.error || event.message || 'Generation failed.',
+    errorCode: event.code || null,
+    errorActionUrl: event.actionUrl || null,
+    errorActionLabel: event.actionLabel || null,
+    status: null,
+  };
+}
 const FAILED_LIKE_STATUSES = new Set(['failed', 'quality_rejected']);
 
 function hasAdImage(ad) {
@@ -211,8 +223,9 @@ function getGalleryStatusMeta(ad) {
   };
 }
 
-export default function AdStudio({ projectId, project, onOpenPipeline }) {
+export default function AdStudio({ projectId, project, conductorAngles = [], onOpenPipeline }) {
   const toast = useToast();
+  const navigate = useNavigate();
 
   // Prompt guidelines (editable on Ad Studio, synced to project)
   const [promptGuidelines, setPromptGuidelines] = useState(project?.prompt_guidelines || '');
@@ -225,6 +238,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   // Generation controls
   const [aspectRatio, setAspectRatio] = useState('1:1');
   const [angle, setAngle] = useState('');
+  const [angleModeOverride, setAngleModeOverride] = useState('');
+  const angleTouchedRef = useRef(false);
   const [headline, setHeadline] = useState('');
   const [bodyCopy, setBodyCopy] = useState('');
 
@@ -305,7 +320,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const queueRef = useRef(null);
 
   // Derived count of in-progress generations
-  const activeGenCount = activeGens.filter(g => g.status && g.status !== 'completed' && !g.error).length;
+  const activeGenCount = activeGens.filter(g => g.status && g.status !== 'completed' && g.status !== 'cancelled' && !g.error).length;
 
   // Gallery
   const { data: ads, setData: setAds, loading: loadingAds, refetch: loadAds } = useAsyncData(
@@ -334,8 +349,35 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const galleryRef = useRef(null);
   const [bulkBarInGalleryRange, setBulkBarInGalleryRange] = useState(false);
 
+  const activeConductorAngles = useMemo(() => {
+    return ensureArray(conductorAngles, 'AdStudio.conductorAngles')
+      .filter(a => a?.status === 'active');
+  }, [conductorAngles]);
+
+  const directOfferAngleName = useMemo(() => {
+    return activeConductorAngles.find(a => a?.is_system_default === true)?.name || '';
+  }, [activeConductorAngles]);
+
+  const angleMode = useMemo(() => {
+    if (angleModeOverride === CUSTOM_ANGLE_MODE) return CUSTOM_ANGLE_MODE;
+    if (!angle.trim()) return '';
+    return activeConductorAngles.some(a => a?.name === angle) ? angle : CUSTOM_ANGLE_MODE;
+  }, [activeConductorAngles, angle, angleModeOverride]);
+
+  const handleAngleModeChange = useCallback((value) => {
+    angleTouchedRef.current = true;
+    if (value === CUSTOM_ANGLE_MODE) {
+      setAngleModeOverride(CUSTOM_ANGLE_MODE);
+      return;
+    }
+    setAngleModeOverride('');
+    setAngle(value);
+  }, []);
+
   useEffect(() => {
     // Reset form state when project changes
+    angleTouchedRef.current = false;
+    setAngleModeOverride('');
     setAngle('');
     setHeadline('');
     setBodyCopy('');
@@ -350,6 +392,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     setOptionalOpen(false);
     setPromptGuidelines(project?.prompt_guidelines || '');
   }, [projectId]);
+
+  useEffect(() => {
+    if (!directOfferAngleName || angleTouchedRef.current) return;
+    setAngle(prev => (prev.trim() ? prev : directOfferAngleName));
+  }, [directOfferAngleName, projectId]);
 
   const mergeAdData = useCallback((nextAd) => {
     if (!nextAd) return null;
@@ -447,14 +494,14 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   usePolling(() => syncInProgressAds(), 5000, !!projectId);
 
   // Poll for status updates on restored queue items.
-  const trackedGenerationCount = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && !g.error).length;
+  const trackedGenerationCount = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && g.status !== 'cancelled' && !g.error).length;
 
   usePolling(async () => {
     try {
       const data = await api.getInProgressAds(projectId);
       const inProgressMap = new Map(ensureArray(data?.ads, 'AdStudio.inProgressAds').map(a => [a.id, a]));
 
-      const currentTracked = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && !g.error);
+      const currentTracked = activeGens.filter(g => g.adExternalId && g.status !== 'completed' && g.status !== 'cancelled' && !g.error);
       const disappeared = currentTracked.filter(g => !inProgressMap.has(g.adExternalId));
 
       const finalAds = {};
@@ -479,6 +526,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           const finalAd = finalAds[g.adExternalId];
           if (finalAd?.status === 'failed') {
             return { ...g, status: null, error: finalAd.error_message || 'Generation failed on server', progress: 0 };
+          }
+          if (finalAd?.status === 'cancelled' || finalAd?.status === 'canceled') {
+            return { ...g, status: 'cancelled', message: 'Cancelled', progress: 0, cancelling: false };
           }
           if (isCompletedImageReady(finalAd)) {
             return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
@@ -515,7 +565,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         return g;
       }));
 
-      const finalAdRows = Object.values(finalAds).filter(ad => ad?.id && (ad.status === 'failed' || isCompletedImageReady(ad)));
+      const finalAdRows = Object.values(finalAds).filter(ad => ad?.id && (ad.status === 'failed' || ad.status === 'cancelled' || ad.status === 'canceled' || isCompletedImageReady(ad)));
       const completedAds = finalAdRows.filter(isCompletedImageReady);
       if (finalAdRows.length > 0) {
         setAds(prev => {
@@ -545,7 +595,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     const interval = setInterval(() => {
       const now = Date.now();
       setActiveGens(prev => prev.map(g => {
-        if (!g.status || g.status === 'completed' || g.error) return g;
+        if (!g.status || g.status === 'completed' || g.status === 'cancelled' || g.error) return g;
         const lastEventAt = g.lastEventAt || g.startTime || now;
         if (now - lastEventAt < QUEUE_WATCHDOG_MS) return g;
         return {
@@ -705,6 +755,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         return;
       }
       newAngle = data.angle;
+      angleTouchedRef.current = true;
+      setAngleModeOverride('');
       setAngle(newAngle);
     } catch (err) {
       console.error('Failed to generate angle:', err);
@@ -1064,6 +1116,49 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     });
   };
 
+  const handleGenerationCancelledEvent = (genId, message = 'Cancelled') => {
+    updateGen(genId, {
+      status: 'cancelled',
+      message,
+      progress: 0,
+      error: '',
+      warning: '',
+      cancelling: false,
+      source: 'sse',
+    });
+    loadAds();
+  };
+
+  const handleCancelGeneration = async (gen) => {
+    if (!gen?.adExternalId || gen.cancelling || gen.status === 'cancelled' || gen.status === 'completed') return;
+    updateGen(gen.id, {
+      cancelling: true,
+      message: 'Cancelling...',
+      warning: '',
+    });
+    try {
+      await api.cancelAd(projectId, gen.adExternalId);
+      gen.stream?.abort?.();
+      updateGen(gen.id, {
+        message: 'Cancellation requested...',
+        cancelling: true,
+      });
+    } catch (err) {
+      if (err?.status === 409) {
+        toast.info('Generation already finished — refresh to see result.');
+      } else {
+        toast.error(err.message || 'Failed to cancel generation.');
+      }
+      updateGen(gen.id, { cancelling: false });
+    }
+  };
+
+  const handleGenerationErrorAction = useCallback((gen) => {
+    if (gen?.errorCode === 'MISSING_PRODUCT_DESCRIPTION' && gen.errorActionUrl) {
+      navigate(gen.errorActionUrl);
+    }
+  }, [navigate]);
+
   const handleGenerate = async () => {
     // Create a unique ID for this generation
     const genId = ++genIdCounter.current;
@@ -1157,8 +1252,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
         handleGenerationCompleteEvent(genId, event.ad, 'Ad generated successfully!');
+      } else if (event.type === 'cancelled') {
+        handleGenerationCancelledEvent(genId, event.message || 'Cancelled');
       } else if (event.type === 'error') {
-        updateGen(genId, { error: event.error, status: null });
+        updateGen(genId, generationErrorUpdates(event));
       }
     };
 
@@ -1182,19 +1279,18 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       if (!(await attachProductImage(options))) return;
 
-      // Send prompt-edit references separately for OpenAI; Gemini keeps the legacy
-      // single-reference behavior by using the edit reference as the image input.
-      if (editReferenceFile) {
-        const sourceRef = editReferenceFile;
-        try {
-          const { base64, mime, file: resized } = await resizeAndBase64(sourceRef);
-          if (sourceRef === editReferenceFile) {
-            options.reference_image = base64;
-            options.reference_image_mime = mime;
-            if (!options.product_image && imageModel !== 'gpt-image-2') {
-              options.product_image = base64;
-              options.product_image_mime = mime;
-            }
+          // Use the edit reference as the image input for Gemini rendering.
+          if (editReferenceFile) {
+            const sourceRef = editReferenceFile;
+            try {
+              const { base64, mime, file: resized } = await resizeAndBase64(sourceRef);
+              if (sourceRef === editReferenceFile) {
+                options.reference_image = base64;
+                options.reference_image_mime = mime;
+                if (!options.product_image) {
+                  options.product_image = base64;
+                  options.product_image_mime = mime;
+                }
             resizedFiles.push(resized);
           }
         } catch { /* non-fatal — proceed without the reference image */ }
@@ -1202,6 +1298,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       if (exceedsCombinedSizeLimit()) return;
       stream = api.regenerateImage(projectId, options, handleEvent);
+      updateGen(genId, { stream });
     } else if (templateSource === TEMPLATE_SELECT && selectedTemplate) {
       updateGen(genId, { status: 'generating_copy', message: 'Starting template-based generation...' });
 
@@ -1227,6 +1324,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       if (exceedsCombinedSizeLimit()) return;
       stream = api.generateAd(projectId, options, handleEvent);
+      updateGen(genId, { stream });
     } else {
       updateGen(genId, { status: 'generating_copy', message: 'Starting ad generation...' });
 
@@ -1262,6 +1360,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
       if (exceedsCombinedSizeLimit()) return;
       stream = api.generateAd(projectId, options, handleEvent);
+      updateGen(genId, { stream });
     }
 
     if (oneTimeProductFile && !saveProductAsDefault) {
@@ -1284,6 +1383,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       .catch(err => {
         setActiveGens(prev => prev.map(g => {
           if (g.id !== genId) return g;
+          if (g.cancelling) {
+            return { ...g, status: 'cancelled', message: 'Cancelled', progress: 0, cancelling: false, warning: '' };
+          }
           if (g.adExternalId) {
             return {
               ...g,
@@ -1609,8 +1711,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
         handleGenerationCompleteEvent(genId, event.ad, 'Ad regenerated successfully!');
+      } else if (event.type === 'cancelled') {
+        handleGenerationCancelledEvent(genId, event.message || 'Cancelled');
       } else if (event.type === 'error') {
-        updateGen(genId, { error: event.error, status: null });
+        updateGen(genId, generationErrorUpdates(event));
       }
     };
 
@@ -1627,6 +1731,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         headline: sourceAd.headline || undefined,
         body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
+      updateGen(genId, { stream });
     } else if (sourceAd.generation_mode === 'mode2' && sourceAd.template_image_id) {
       // Template-based ads: regenerate with same template
       updateGen(genId, { status: 'generating_copy', message: 'Regenerating template-based ad...', progress: 5 });
@@ -1638,6 +1743,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         headline: sourceAd.headline || undefined,
         body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
+      updateGen(genId, { stream });
     } else {
       // Standard mode1 ads: regenerate with random inspiration
       updateGen(genId, { status: 'generating_copy', message: 'Regenerating ad...', progress: 5 });
@@ -1648,6 +1754,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         headline: sourceAd.headline || undefined,
         body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
+      updateGen(genId, { stream });
     }
 
     await stream.done
@@ -1665,6 +1772,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       .catch(err => {
         setActiveGens(prev => prev.map(g => {
           if (g.id !== genId) return g;
+          if (g.cancelling) {
+            return { ...g, status: 'cancelled', message: 'Cancelled', progress: 0, cancelling: false, warning: '' };
+          }
           if (g.adExternalId) {
             return {
               ...g,
@@ -1746,8 +1856,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           updateGen(genId, { warning: event.message });
         } else if (event.type === 'complete') {
           handleGenerationCompleteEvent(genId, event.ad, 'Image retry completed!');
+        } else if (event.type === 'cancelled') {
+          handleGenerationCancelledEvent(genId, event.message || 'Cancelled');
         } else if (event.type === 'error') {
-          updateGen(genId, { error: event.error, status: null });
+          updateGen(genId, generationErrorUpdates(event));
         }
       };
 
@@ -1760,6 +1872,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         headline: sourceAd.headline || undefined,
         body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
+      updateGen(genId, { stream });
 
       await stream.done
         .then(() => {
@@ -1776,6 +1889,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         .catch(err => {
           setActiveGens(prev => prev.map(g => {
             if (g.id !== genId) return g;
+            if (g.cancelling) {
+              return { ...g, status: 'cancelled', message: 'Cancelled', progress: 0, cancelling: false, warning: '' };
+            }
             if (g.adExternalId) {
               return {
                 ...g,
@@ -1815,7 +1931,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     setParentAdId(editableAd.id);
     setEditingAdImage(editableAd.imageUrl || editableAd.thumbnailUrl || ad.imageUrl || ad.thumbnailUrl || null);
     setAspectRatio(editableAd.aspect_ratio || '1:1');
-    if (editableAd.angle) setAngle(editableAd.angle);
+    if (editableAd.angle) {
+      angleTouchedRef.current = true;
+      setAngleModeOverride('');
+      setAngle(editableAd.angle);
+    }
     if (editableAd.headline) setHeadline(editableAd.headline);
     if (editableAd.body_copy) setBodyCopy(editableAd.body_copy);
     setEditMode('describe');
@@ -1840,7 +1960,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     if (e) e.stopPropagation();
 
     // Load core settings
-    if (ad.angle) setAngle(ad.angle);
+    if (ad.angle) {
+      angleTouchedRef.current = true;
+      setAngleModeOverride('');
+      setAngle(ad.angle);
+    }
     if (ad.headline) setHeadline(ad.headline);
     if (ad.body_copy) setBodyCopy(ad.body_copy);
     if (ad.aspect_ratio) setAspectRatio(ad.aspect_ratio);
@@ -2366,7 +2490,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                                   </div>
                                 )}
                                 {useCount > 0 && !isSelected && (
-                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-ed-bg0 backdrop-blur-sm text-white text-[9px] font-bold">
+                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-ed-ink/80 backdrop-blur-sm text-white text-[9px] font-bold">
                                     {useCount}×
                                   </div>
                                 )}
@@ -2414,7 +2538,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                                   </div>
                                 )}
                                 {useCount > 0 && !isSelected && (
-                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-ed-bg0 backdrop-blur-sm text-white text-[9px] font-bold">
+                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-ed-ink/80 backdrop-blur-sm text-white text-[9px] font-bold">
                                     {useCount}×
                                   </div>
                                 )}
@@ -2693,7 +2817,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               <div className="mb-5">
                 <label className="text-[11px] uppercase tracking-[0.14em] text-ed-ink3 mb-2 flex items-center gap-1 font-geist">
                   Image Generator
-                  <InfoTooltip text="Choose which image model renders the final ad. Gemini is the default path; GPT Image 2 requires verified OpenAI image-model access." position="right" />
+                  <InfoTooltip text="Choose which Gemini image model renders the final ad." position="right" />
                 </label>
                 <select
                   value={imageModel}
@@ -2702,19 +2826,17 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 >
                   <option value="nano-banana-pro">Nano Banana Pro (Gemini 3 Pro)</option>
                   <option value="nano-banana-2">Nano Banana 2 (Gemini 3.1 Flash)</option>
-                  <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
                 </select>
                 <p className="text-[10px] text-ed-ink3 mt-1">
                   {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation.'}
                   {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K (current default).'}
-                  {imageModel === 'gpt-image-2' && 'OpenAI image generation with layout + product references. Verify access in Settings with Test GPT Image 2; the check is user-triggered because it is billable.'}
                 </p>
               </div>
 
               {(angle.trim() || headline.trim() || bodyCopy.trim()) && (
                 <div className="flex justify-end mb-1">
                   <button
-                    onClick={() => { setAngle(''); setHeadline(''); setBodyCopy(''); }}
+                    onClick={() => { angleTouchedRef.current = true; setAngleModeOverride(''); setAngle(''); setHeadline(''); setBodyCopy(''); }}
                     className="text-[10px] text-ed-ink3 hover:text-ed-rust transition-colors"
                   >
                     Clear fields
@@ -2748,14 +2870,31 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                       )}
                     </button>
                   </div>
-                  <input
-                    data-testid="ad-angle-input"
-                    value={angle}
-                    onChange={e => setAngle(e.target.value)}
-                    placeholder={generatingAngle ? 'Generating angle...' : 'e.g., "customer transformation story"'}
+                  <select
+                    data-testid="ad-angle-select"
+                    value={angleMode}
+                    onChange={e => handleAngleModeChange(e.target.value)}
                     className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
                     disabled={generatingAngle}
-                  />
+                  >
+                    <option value="">No angle / template-only</option>
+                    {activeConductorAngles.map(a => (
+                      <option key={a.externalId || a.name} value={a.name}>
+                        {a.is_system_default ? `${a.name} (Direct Offer default)` : a.name}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_ANGLE_MODE}>Custom…</option>
+                  </select>
+                  {angleMode === CUSTOM_ANGLE_MODE && (
+                    <input
+                      data-testid="ad-angle-input"
+                      value={angle}
+                      onChange={e => { angleTouchedRef.current = true; setAngleModeOverride(CUSTOM_ANGLE_MODE); setAngle(e.target.value); }}
+                      placeholder={generatingAngle ? 'Generating angle...' : 'e.g., "customer transformation story"'}
+                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent mt-2"
+                      disabled={generatingAngle}
+                    />
+                  )}
                 </div>
 
                 {/* Headline */}
@@ -3194,7 +3333,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               : 'Generate ad'}
           </button>
           <span className="font-mono-ed text-[11.5px] text-ed-ink3">
-            {imageModel === 'gpt-image-1' ? '~$0.19 · ~45s' : '~$0.04 · ~18s'}
+            ~Gemini rate · ~18s
           </span>
         </div>
 
@@ -3204,6 +3343,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       <BatchManager
         projectId={projectId}
         project={project}
+        conductorAngles={conductorAngles}
         onBatchComplete={loadAds}
       />
 
@@ -3216,6 +3356,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         setGenQueueExpanded={setGenQueueExpanded}
         activeGenCount={activeGenCount}
         dismissGen={dismissGen}
+        onCancelGeneration={handleCancelGeneration}
+        onErrorAction={handleGenerationErrorAction}
       />
 
       {/* Ad Gallery */}
@@ -3422,7 +3564,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                       className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
                         selectedAdIds.has(ad.id)
                           ? 'bg-ed-accent text-white shadow-sm'
-                          : 'bg-black/40 backdrop-blur-sm text-white/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-ed-bg0'
+                          : 'bg-black/40 backdrop-blur-sm text-white/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-ed-ink/80'
                       }`}
                       title={selectedAdIds.has(ad.id) ? 'Deselect' : ad.status === 'quality_rejected' ? 'Select QA rejected ad' : ad.status === 'failed' ? 'Select failed ad' : 'Select for bulk actions'}
                     >
@@ -3498,7 +3640,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                       className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ${
                         ad.is_favorite
                           ? 'text-rose-500 bg-white/90 backdrop-blur-sm shadow-sm'
-                          : 'text-white/90 bg-black/40 backdrop-blur-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-ed-bg0'
+                          : 'text-white/90 bg-black/40 backdrop-blur-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-ed-ink/80'
                       }`}
                       title={ad.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                     >
@@ -3805,7 +3947,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       {viewAd && createPortal(
         (
         <div
-          className="fixed inset-0 bg-ed-bg0 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-ed-ink/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setViewAd(null)}
         >
           <div

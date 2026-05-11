@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { generateImage as geminiGenerateImage } from './gemini.js';
-import { generateImage as openaiGenerateImage } from './openai.js';
 
 // Batch-pipeline LLM model selection (per-call-type, chosen for capability).
 // Migrated off Anthropic 2026-04-30 — see changelog for rationale.
@@ -11,22 +10,15 @@ const BATCH_VISION_MODEL = 'gpt-4.1';   // image-prompt-with-vision: 4.1 has rel
 // Whitelist of allowed image-model strings + which provider handles each.
 // Prevents devtools-injected arbitrary strings from reaching the API.
 const GEMINI_MODELS = new Set(['nano-banana-pro', 'nano-banana-2', 'gemini-3-pro']);
-const OPENAI_IMAGE_MODELS = new Set(['gpt-image-2']);
 
 function resolveImageProvider(imageModel) {
   if (!imageModel || GEMINI_MODELS.has(imageModel)) return geminiGenerateImage;
-  if (OPENAI_IMAGE_MODELS.has(imageModel)) return openaiGenerateImage;
   throw new Error(`Unknown image model: ${imageModel}`);
 }
 
 function imageModelLabel(imageModel) {
   if (imageModel === 'nano-banana-2') return 'Nano Banana 2';
-  if (imageModel === 'gpt-image-2') return 'GPT Image 2';
   return 'Nano Banana Pro';
-}
-
-function isOpenAIImageModel(imageModel) {
-  return OPENAI_IMAGE_MODELS.has(imageModel);
 }
 
 function makeRenderReference(base64, mimeType, role) {
@@ -55,9 +47,72 @@ if (!fs.existsSync(THUMB_CACHE_DIR)) {
 }
 
 const TERMINAL_AD_STATUSES = new Set(['completed', 'failed', 'quality_rejected', 'cancelled', 'canceled']);
+const AD_CANCELLED_MESSAGE = 'Cancelled by user';
+const MISSING_PRODUCT_DESCRIPTION_MESSAGE = "This project is missing a Product Description. Add a clear 1-3 sentence description of what's actually being sold (the offer, who it's for, and what they get), then try generating again.";
+
+export function assertProductDescription(project) {
+  if (String(project?.product_description || '').trim()) return;
+
+  const projectExternalId = project?.externalId || project?.id;
+  const err = new Error(MISSING_PRODUCT_DESCRIPTION_MESSAGE);
+  err.code = 'MISSING_PRODUCT_DESCRIPTION';
+  err.userActionable = true;
+  err.actionUrl = projectExternalId ? `/projects/${projectExternalId}?tab=overview` : '/projects';
+  err.actionLabel = 'Edit Product Description';
+  throw err;
+}
+
+function buildAdErrorEvent(err) {
+  return {
+    type: 'error',
+    error: err.message,
+    message: err.message,
+    ...(err.code ? { code: err.code } : {}),
+    ...(err.userActionable !== undefined ? { userActionable: err.userActionable } : {}),
+    ...(err.actionUrl ? { actionUrl: err.actionUrl } : {}),
+    ...(err.actionLabel ? { actionLabel: err.actionLabel } : {}),
+  };
+}
+
+function emitAdError(emit, err) {
+  emit(buildAdErrorEvent(err));
+}
 
 function isTerminalAdStatus(status) {
   return TERMINAL_AD_STATUSES.has(status);
+}
+
+function buildAdCancellationError(message = AD_CANCELLED_MESSAGE) {
+  const err = new Error(message);
+  err.code = 'AD_GENERATION_CANCELLED';
+  return err;
+}
+
+function isAdCancellationError(err, cancelSignal = null) {
+  if (!err) return false;
+  if (err.code === 'AD_GENERATION_CANCELLED' || err.code === 'GEMINI_CANCELLED') return true;
+  if (err.geminiErrorClass === 'cancelled') return true;
+  if (cancelSignal?.aborted && (err.name === 'AbortError' || /cancel|abort/i.test(err.message || ''))) return true;
+  return false;
+}
+
+async function assertAdNotCancelled(adId, cancelSignal = null) {
+  if (cancelSignal?.aborted) throw buildAdCancellationError();
+  const ad = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId });
+  if (ad?.cancellation_requested_at || ad?.status === 'cancelled' || ad?.status === 'canceled') {
+    throw buildAdCancellationError();
+  }
+  return ad;
+}
+
+async function markAdCancelled(adId, emit, fields = {}) {
+  await updateAdCreative(adId, {
+    status: 'cancelled',
+    error_message: AD_CANCELLED_MESSAGE,
+    failure_stage: null,
+    ...fields,
+  });
+  emit({ type: 'cancelled', adId, message: AD_CANCELLED_MESSAGE });
 }
 
 function serializeImageAttempts(attempts) {
@@ -69,6 +124,7 @@ function serializeImageAttempts(attempts) {
     duration_ms: Number.isFinite(attempt.duration_ms) ? attempt.duration_ms : null,
     error_class: attempt.error_class || 'unknown',
     error_message: attempt.error_message || null,
+    queue_depth_at_start: Number.isFinite(attempt.queue_depth_at_start) ? attempt.queue_depth_at_start : null,
   })));
 }
 
@@ -300,16 +356,17 @@ export function buildCreativeDirectorPrompt(project, docs) {
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
   const beliefsContent = docs.necessary_beliefs?.content || '[No necessary beliefs document available]';
+  const offerRenderContext = getOfferRenderContext(project, docs);
 
-  let prompt = `You are a world-class creative director and image generation expert working exclusively for ${project.brand_name}, a ${project.niche} brand that ${project.product_description}.
+  let prompt = `You are a world-class creative director and image generation expert working exclusively for ${project.brand_name}, a brand advertising this offer: ${project.product_description}.
 
 🎯 Your Role:
 Your sole job is to analyze creative inputs and generate prompts for text-to-image softwares for the brand, including:
 Static ads
 Comparison ads
-Product-in-hand visuals
-Before/after transformations
-Lifestyle or user-experience visuals
+Offer explainer visuals
+Before/after belief or situation transformations
+Lifestyle, documentary, or user-experience visuals
 And more
 
 📄 Workflow:
@@ -321,11 +378,15 @@ Recreate the image concepts—but styled, branded, and tailored for my brand men
 Ensure the design, layout, and mood matches my brands audience and brand aesthetic.
 Ask for clarification only if absolutely necessary—default to action.
 
+OFFER RENDERING CONTEXT:
+${offerRenderContext}
+
 ✅ Creative Requirements:
 All image generations must use 1:1 aspect ratio unless otherwise specified.
-Include product mockups, realistic models, and visual results.
-Avoid generic stock photo vibes—aim for realism, emotion, and DTC ad performance.
-Prioritize scroll-stopping contrast and clean, conversion-focused design.
+Use truthful visual anchors for the offer being advertised. For non-physical offers, show the prospect's lived moment, decision context, emotional state, or outcome rather than inventing a physical item.
+Avoid generic stock photo vibes—aim for realism, emotional specificity, and offer-relevant ad performance.
+Prioritize scroll-stopping contrast and clean, legible design.
+Do not invent proof elements, reviewer names, review-score graphics, customer-volume claims, named testimonial signatures, or specific statistics unless they are present in the project documentation.
 
 📣 Tone & Audience:
 Please match the tone of the ads according to the research doc attached to this message.
@@ -558,7 +619,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, templateTag, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
+  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, templateTag, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent, cancelSignal } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -585,6 +646,8 @@ export async function generateAd(projectId, options = {}) {
 
   const stopHeartbeat = startAdHeartbeat(adId);
   try {
+    await assertAdNotCancelled(adId, cancelSignal);
+
     // 1. Load project + foundational docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
     const [project, research, avatar, offer_brief, necessary_beliefs, inspiration] = await Promise.all([
@@ -598,6 +661,8 @@ export async function generateAd(projectId, options = {}) {
         : selectInspirationImage(projectId, inspirationImageId, { templateTag }),
     ]);
     if (!project) throw new Error('Project not found');
+    assertProductDescription(project);
+    await assertAdNotCancelled(adId, cancelSignal);
 
     const docs = { research, avatar, offer_brief, necessary_beliefs };
 
@@ -619,6 +684,7 @@ export async function generateAd(projectId, options = {}) {
     let renderReferenceImages = [];
 
     let imagePrompt = await withHeavyLLMLimit(async () => {
+      await assertAdNotCancelled(adId, cancelSignal);
       // Message 1: Creative director prompt + foundational docs
       emitProgress(emit, adId, { status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
@@ -626,9 +692,10 @@ export async function generateAd(projectId, options = {}) {
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2',
-        { operation: 'ad_creative_director', projectId }
+        { operation: 'ad_creative_director', projectId, signal: cancelSignal }
       );
 
+      await assertAdNotCancelled(adId, cancelSignal);
       // Message 2: Inspiration image + optional product image + instructions
       emitProgress(emit, adId, { status: 'generating_copy', message: hasProductImage
         ? 'GPT-5.2 analyzing inspiration image + product image...'
@@ -656,7 +723,7 @@ export async function generateAd(projectId, options = {}) {
             { base64: productImageBase64, mimeType: productImageMimeType }
           ],
           'gpt-5.2',
-          { operation: 'ad_generation_mode1', projectId }
+          { operation: 'ad_generation_mode1', projectId, signal: cancelSignal }
         );
       } else {
         prompt = await chatWithImage(
@@ -665,7 +732,7 @@ export async function generateAd(projectId, options = {}) {
           inspirationBase64,
           inspiration.mimeType,
           'gpt-5.2',
-          { operation: 'ad_generation_mode1', projectId }
+          { operation: 'ad_generation_mode1', projectId, signal: cancelSignal }
         );
       }
 
@@ -674,11 +741,14 @@ export async function generateAd(projectId, options = {}) {
 
       return prompt;
     }, `[Mode1 Ad ${adId.slice(0, 8)}]`);
+    await assertAdNotCancelled(adId, cancelSignal);
 
     // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
     if (project.prompt_guidelines) {
+      await assertAdNotCancelled(adId, cancelSignal);
       emitProgress(emit, adId, { status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
+      await assertAdNotCancelled(adId, cancelSignal);
     }
 
     // Extract headline & body copy from GPT output (non-blocking, runs in parallel)
@@ -690,6 +760,7 @@ export async function generateAd(projectId, options = {}) {
       image_prompt: imagePrompt,
       status: 'generating_image',
     });
+    await assertAdNotCancelled(adId, cancelSignal);
 
     // Save extracted headline/body (don't block image generation)
     extractionPromise.then(({ headline: extractedHeadline, body_copy: extractedBody }) => {
@@ -713,12 +784,19 @@ export async function generateAd(projectId, options = {}) {
       productImage, imageModel, renderReferenceImages,
       expectedHeadline: headline || null,
       expectedBodyCopy: bodyCopy || null,
-      emit
+      emit,
+      cancelSignal
     });
 
     return ad;
 
   } catch (err) {
+    if (isAdCancellationError(err, cancelSignal)) {
+      await markAdCancelled(adId, emit, {
+        image_attempts: serializeImageAttempts(err.imageAttempts),
+      });
+      return null;
+    }
     // Mark as failed
     await updateAdCreative(adId, {
       status: 'failed',
@@ -726,99 +804,31 @@ export async function generateAd(projectId, options = {}) {
       failure_stage: 'ad_generation',
       image_attempts: serializeImageAttempts(err.imageAttempts),
     });
-    emit({ type: 'error', error: err.message });
+    emitAdError(emit, err);
     throw err;
   } finally {
     stopHeartbeat();
   }
 }
 
-/**
- * Shared helper: Gemini image generation → upload to Convex storage → upload to Drive → finalize record.
- * Used by both generateAd() (full pipeline) and regenerateImageOnly() (prompt-only).
- */
-async function assessGPTImageRender({ imageBuffer, mimeType, imagePrompt, expectedHeadline, expectedBodyCopy, projectId }) {
-  try {
-    const expectedText = [
-      expectedHeadline ? `Required headline: ${expectedHeadline}` : null,
-      expectedBodyCopy ? `Required body copy: ${expectedBodyCopy}` : null,
-    ].filter(Boolean).join('\n') || 'No exact required text was provided.';
-
-    const result = await chatWithImage(
-      [],
-      `Review this generated paid social ad image. Be conservative: fail only if it is obviously not an ad.
-
-Return ONLY JSON with these fields:
-{
-  "is_product_only": boolean,
-  "has_visible_ad_layout": boolean,
-  "headline_visible": boolean,
-  "reason": "short explanation"
-}
-
-Failing examples: a standalone product photo, product cutout, or image with no visible ad layout/text. Minor text misspellings or imperfect typography should still pass.
-
-Image prompt:
-${imagePrompt}
-
-${expectedText}`,
-      imageBuffer.toString('base64'),
-      mimeType || 'image/png',
-      BATCH_VISION_MODEL,
-      { response_format: { type: 'json_object' }, operation: 'ad_image_qa', projectId }
-    );
-
-    const parsed = repairJSON(result);
-    const reason = parsed.reason || 'Generated image failed ad-layout QA.';
-    if (parsed.is_product_only === true) {
-      return { passed: false, reason: `Generated image appears to be product-only: ${reason}` };
-    }
-    if (parsed.has_visible_ad_layout === false) {
-      return { passed: false, reason: `Generated image does not appear to contain a visible ad layout: ${reason}` };
-    }
-    if (expectedHeadline && parsed.headline_visible === false) {
-      return { passed: false, reason: `Generated image appears to ignore the required headline: ${reason}` };
-    }
-    return { passed: true };
-  } catch (err) {
-    console.warn('[AdGenerator] GPT Image QA failed; allowing image to complete:', err.message);
-    return { passed: true, warning: err.message };
-  }
-}
-
-async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, imageModel, renderReferenceImages = [], expectedHeadline = null, expectedBodyCopy = null, emit, modeLabel = 'Mode1' }) {
+async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, imageModel, renderReferenceImages = [], expectedHeadline = null, expectedBodyCopy = null, emit, modeLabel = 'Mode1', cancelSignal = null }) {
   const modelLabel = imageModelLabel(imageModel);
   const imageGen = resolveImageProvider(imageModel);
-  const isOpenAIImage = isOpenAIImageModel(imageModel);
-  const providerProductImage = isOpenAIImage ? null : productImage;
+  await assertAdNotCancelled(adId, cancelSignal);
   emitProgress(emit, adId, { status: 'generating_image', message: (productImage || renderReferenceImages.length > 0)
     ? `Generating image with ${modelLabel} (with product reference)...`
     : `Generating image with ${modelLabel}...`, progress: 70 });
 
-  const { imageBuffer, mimeType: imgMime, imageAttempts } = await imageGen(imagePrompt, aspectRatio, providerProductImage, {
-    projectId, operation: 'ad_image_generation', imageModel, imageSize: '2K',
-    referenceImages: isOpenAIImage ? renderReferenceImages : undefined,
+  const { imageBuffer, mimeType: imgMime, imageAttempts } = await imageGen(imagePrompt, aspectRatio, productImage, {
+    projectId, operation: 'ad_image_generation', imageModel, imageSize: '1K', cancelSignal,
   });
-
-  if (isOpenAIImage) {
-    emitProgress(emit, adId, { status: 'generating_image', message: 'Reviewing generated ad...', progress: 88 });
-    const qa = await assessGPTImageRender({
-      imageBuffer,
-      mimeType: imgMime,
-      imagePrompt,
-      expectedHeadline,
-      expectedBodyCopy,
-      projectId,
-    });
-    if (!qa.passed) {
-      throw new Error(qa.reason);
-    }
-  }
+  await assertAdNotCancelled(adId, cancelSignal);
 
   emitProgress(emit, adId, { status: 'generating_image', message: 'Uploading image...', progress: 90 });
 
   // Upload image to Convex storage
   const storageId = await uploadBuffer(imageBuffer, imgMime);
+  await assertAdNotCancelled(adId, cancelSignal);
 
   // Pre-generate thumbnail cache (fire-and-forget)
   precacheThumb(adId, imageBuffer);
@@ -878,7 +888,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAdMode2(projectId, options = {}) {
-  const { templateImageId, angle, aspectRatio = '1:1', imageModel, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
+  const { templateImageId, angle, aspectRatio = '1:1', imageModel, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent, cancelSignal } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -909,6 +919,8 @@ export async function generateAdMode2(projectId, options = {}) {
 
   const stopHeartbeat = startAdHeartbeat(adId);
   try {
+    await assertAdNotCancelled(adId, cancelSignal);
+
     // 1. Load project + foundational docs + template image (+ optional headline ref) in parallel
     const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
       getProject(projectId),
@@ -919,6 +931,8 @@ export async function generateAdMode2(projectId, options = {}) {
       selectTemplateImage(templateImageId),
     ]);
     if (!project) throw new Error('Project not found');
+    assertProductDescription(project);
+    await assertAdNotCancelled(adId, cancelSignal);
 
     const docs = { research, avatar, offer_brief, necessary_beliefs };
 
@@ -932,6 +946,7 @@ export async function generateAdMode2(projectId, options = {}) {
     let renderReferenceImages = [];
 
     let imagePrompt = await withHeavyLLMLimit(async () => {
+      await assertAdNotCancelled(adId, cancelSignal);
       // Message 1: Creative director prompt + foundational docs
       emitProgress(emit, adId, { status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
@@ -939,9 +954,10 @@ export async function generateAdMode2(projectId, options = {}) {
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2',
-        { operation: 'ad_creative_director', projectId }
+        { operation: 'ad_creative_director', projectId, signal: cancelSignal }
       );
 
+      await assertAdNotCancelled(adId, cancelSignal);
       // Message 2: Template image + optional product image + instructions
       emitProgress(emit, adId, { status: 'generating_copy', message: hasProductImage
         ? 'GPT-5.2 analyzing template image + product image...'
@@ -969,7 +985,7 @@ export async function generateAdMode2(projectId, options = {}) {
             { base64: productImageBase64, mimeType: productImageMimeType }
           ],
           'gpt-5.2',
-          { operation: 'ad_generation_mode2', projectId }
+          { operation: 'ad_generation_mode2', projectId, signal: cancelSignal }
         );
       } else {
         prompt = await chatWithImage(
@@ -978,7 +994,7 @@ export async function generateAdMode2(projectId, options = {}) {
           templateBase64,
           template.mimeType,
           'gpt-5.2',
-          { operation: 'ad_generation_mode2', projectId }
+          { operation: 'ad_generation_mode2', projectId, signal: cancelSignal }
         );
       }
 
@@ -987,11 +1003,14 @@ export async function generateAdMode2(projectId, options = {}) {
 
       return prompt;
     }, `[Mode2 Ad ${adId.slice(0, 8)}]`);
+    await assertAdNotCancelled(adId, cancelSignal);
 
     // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
     if (project.prompt_guidelines) {
+      await assertAdNotCancelled(adId, cancelSignal);
       emitProgress(emit, adId, { status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
+      await assertAdNotCancelled(adId, cancelSignal);
     }
 
     // Extract headline & body copy from GPT output (non-blocking, runs in parallel)
@@ -1003,6 +1022,7 @@ export async function generateAdMode2(projectId, options = {}) {
       image_prompt: imagePrompt,
       status: 'generating_image',
     });
+    await assertAdNotCancelled(adId, cancelSignal);
 
     // Save extracted headline/body (don't block image generation)
     extractionPromise.then(({ headline: extractedHeadline, body_copy: extractedBody }) => {
@@ -1026,19 +1046,26 @@ export async function generateAdMode2(projectId, options = {}) {
       productImage, imageModel, renderReferenceImages,
       expectedHeadline: headline || null,
       expectedBodyCopy: bodyCopy || null,
-      emit, modeLabel: 'Mode2'
+      emit, modeLabel: 'Mode2',
+      cancelSignal
     });
 
     return ad;
 
   } catch (err) {
+    if (isAdCancellationError(err, cancelSignal)) {
+      await markAdCancelled(adId, emit, {
+        image_attempts: serializeImageAttempts(err.imageAttempts),
+      });
+      return null;
+    }
     await updateAdCreative(adId, {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'ad_generation_mode2',
       image_attempts: serializeImageAttempts(err.imageAttempts),
     });
-    emit({ type: 'error', error: err.message });
+    emitAdError(emit, err);
     throw err;
   } finally {
     stopHeartbeat();
@@ -1080,14 +1107,98 @@ function extractBriefSection(briefPacket, sectionName) {
   return match ? match[1].trim() : '';
 }
 
+function compactPromptText(value, maxLength = 900) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function extractAvatarAudienceSnippet(source) {
+  const text = typeof source === 'string'
+    ? source
+    : source?.avatar?.content || source?.avatarContent || source?.avatar || '';
+  if (!text) return '';
+
+  const briefAudience = extractBriefSection(text, 'AVATAR IN THIS MOMENT');
+  if (briefAudience) return compactPromptText(briefAudience);
+
+  const headingPatterns = [
+    /(?:^|\n)#{1,3}\s*(?:Demographic & General Information|Demographics?|Target Audience|Avatar|Who They Are)[^\n]*\n([\s\S]*?)(?=\n#{1,3}\s+|$)/i,
+    /(?:^|\n)(?:Demographic & General Information|Demographics?|Target Audience|Avatar|Who They Are)[^\n]*\n([\s\S]*?)(?=\n[A-Z][A-Z\s/&-]{8,}\n|$)/i,
+  ];
+  for (const pattern of headingPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return compactPromptText(match[1]);
+  }
+
+  return compactPromptText(text, 900);
+}
+
+export function getProjectAudienceContext(project = {}, foundationalDocs = null) {
+  const brand = project?.brand_name || project?.name || 'the brand';
+  const product = compactPromptText(project?.product_description || '', 500);
+  const niche = compactPromptText(project?.niche || '', 160);
+  const avatarSnippet = extractAvatarAudienceSnippet(foundationalDocs);
+
+  const lines = [
+    `Brand: ${brand}${niche ? ` (${niche})` : ''}.`,
+    product ? `Offer: ${product}` : null,
+    avatarSnippet
+      ? `Audience from project docs: ${avatarSnippet}`
+      : 'Audience from project docs: use only the audience, beliefs, pain points, and context provided in the project materials.',
+    'Do not invent a default age range, demographic, product category, or niche that is not present in the project materials.',
+  ].filter(Boolean);
+
+  return lines.join('\n');
+}
+
+function isExplicitEcommerceProject(project = {}) {
+  const haystack = [
+    project?.niche,
+    project?.category,
+    project?.business_type,
+    project?.product_type,
+    project?.product_description,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  return /\b(ecommerce|e-commerce|dtc|direct-to-consumer|shopify|woocommerce|supplement|supplements|physical product|skincare|cosmetic|apparel|retail|consumer product|cpg)\b/.test(haystack);
+}
+
+export function getOfferRenderContext(project = {}, foundationalDocs = null) {
+  const offer = compactPromptText(project?.product_description || '', 700);
+  const audience = getProjectAudienceContext(project, foundationalDocs);
+  const ecommerce = isExplicitEcommerceProject(project);
+
+  if (ecommerce) {
+    return [
+      'Offer rendering mode: ecommerce / physical-product eligible because the project niche or offer explicitly indicates ecommerce, DTC, supplements, retail, or a physical consumer product.',
+      offer ? `Offer being advertised: ${offer}` : null,
+      'Visuals may show the actual item, packaging, shopping context, or a concrete product demonstration when it is truthful to the project materials.',
+      'Still do not invent proof elements, reviewer names, review-score graphics, customer-volume claims, or specific statistics unless they are present in the project documentation.',
+      audience,
+    ].filter(Boolean).join('\n');
+  }
+
+  return [
+    'Offer rendering mode: offer-agnostic / non-physical by default.',
+    offer ? `Offer being advertised: ${offer}` : null,
+    'Do not assume there is a physical item to photograph, hold, unbox, compare on a shelf, or place as the dominant visual.',
+    'Build the visual around the prospect, the lived moment, the emotional tension, the setting, the promised clarity, or the next-step action described in the project materials.',
+    'If a template has product-shaped space, adapt it into an offer-relevant visual anchor such as a webinar screen, calendar moment, notes, decision map, or real-world scene only when that fits the project context.',
+    'Do not invent proof elements, reviewer names, review-score graphics, customer-volume claims, named testimonial signatures, or specific statistics unless they are present in the project documentation.',
+    audience,
+  ].join('\n');
+}
+
 export const HEADLINE_LANES = {
-  symptom_recognition: 'Open with a specific physical symptom the reader recognizes instantly.',
+  symptom_recognition: "Open with a specific moment, sensation, or recognition from the prospect's lived experience.",
   oddly_specific_moment: 'Describe a hyper-specific moment, time, or sensation that feels uncannily real.',
-  failed_solutions: 'Lead with the remedies, purchases, or routines they already tried without success.',
+  failed_solutions: "Lead with the things the prospect has already tried (advice they got, solutions they considered, paths they almost took) that didn't resolve the underlying tension.",
   consequence_led: 'Focus on the cost of leaving the problem unresolved.',
   skeptical_confession: 'Use the voice of someone who doubted it would work and admits that honestly.',
   objection_reversal: 'Name the objection directly, then flip it in a grounded way.',
-  review_like: 'Sound like a real recommendation, testimonial, or product review from a trusted person.',
+  review_like: "Sound like a real first-person reflection or insight, in the voice of someone who's been through this experience. Do NOT fabricate named endorsements, review-score graphics, or invented reviewer credentials.",
   comparison: 'Compare against a familiar alternative, habit, or failed solution.',
   mechanism_curiosity: 'Create curiosity around how or why something works without fully explaining it.',
   identity_trust: 'Appeal to identity, values, trust, origin, or buyer-protection logic.',
@@ -1173,6 +1284,45 @@ function formatPriorHeadlineHistory(priorHeadlines) {
   return `\n\nRECENT HEADLINES ALREADY USED FOR THIS ANGLE:\n${lines}\nDo NOT recycle these headline families, hook moves, or central claims.`;
 }
 
+function formatAngleAvoidList(angleBrief) {
+  const raw = safeString(angleBrief?.avoid_list);
+  if (!raw) return '';
+  const items = raw
+    .split(/\n|;|,/)
+    .map((item) => item.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  return items.length > 0 ? items.join('; ') : raw;
+}
+
+function buildAngleSpecificExampleBlock(angleBrief = null) {
+  const frame = safeString(angleBrief?.frame);
+  const scene = safeString(angleBrief?.scene);
+  const symptom = safeString(angleBrief?.symptom_pattern);
+  const objection = safeString(angleBrief?.objection);
+  const coreBuyer = safeString(angleBrief?.core_buyer);
+  const sceneExample = scene
+    ? scene.split(/[.!?]/)[0].trim()
+    : 'the exact lived moment from the angle';
+  const symptomExample = symptom
+    ? symptom.split(/[.!?]/)[0].trim()
+    : 'the specific symptom or decision tension';
+  const buyerExample = coreBuyer
+    ? coreBuyer.split(/[.!?]/)[0].trim()
+    : 'the exact buyer described in the angle';
+  const rejected = frame === 'objection-first'
+    ? ['Get Clarity Today', 'FINDING YOUR CALLING', 'Free Live Webinar']
+    : ['Free Live Webinar', 'Get Clarity Today', 'FINDING YOUR CALLING'];
+
+  const goodExamples = [
+    scene ? `"${sceneExample.length > 72 ? sceneExample.slice(0, 69) + '...' : sceneExample}"` : `"${buyerExample.length > 72 ? buyerExample.slice(0, 69) + '...' : buyerExample}"`,
+    symptom ? `"${symptomExample.length > 72 ? symptomExample.slice(0, 69) + '...' : symptomExample}"` : '"The exact doubt from this angle, stated plainly"',
+    objection ? `"${objection.split(/[.!?]/)[0].trim().slice(0, 72)}"` : '"A concrete moment that only this angle would create"',
+  ];
+
+  return `\n\nANGLE-SIGNAL EXAMPLES:\nGOOD candidates must sound this concrete and angle-specific:\n- ${goodExamples.join('\n- ')}\n\nREJECT generic offer/category candidates like:\n- "${rejected.join('"\n- "')}"\nThese rejected lines are too broad unless the visible headline itself also contains angle-specific scene, symptom, buyer, or objection language.`;
+}
+
 /**
  * Stage 0: Brief Extraction — condenses 4 foundational docs into angle-specific ~1 page brief.
  * Runs once per batch. 1 API call.
@@ -1223,7 +1373,7 @@ export async function extractBrief(project, docs, angle, angleBrief = null) {
   const prompt = `You are a direct response research analyst. Your job is to extract the most relevant raw material from brand foundational documents for a specific advertising angle.
 
 BRAND: ${project.brand_name || project.name}
-PRODUCT: ${project.product_description || ''}
+OFFER: ${project.product_description || ''}
 TARGET DEMOGRAPHIC: ${targetDemographic}
 
 ${angleContext}
@@ -1233,7 +1383,7 @@ I will provide you with four foundational documents. From these documents, extra
 Your output must contain exactly these sections:
 
 ## AVATAR IN THIS MOMENT
-3-4 sentences describing who this woman is specifically when she encounters an ad using this angle. What is she feeling right now? What would make her stop scrolling?
+3-4 sentences describing who this person is specifically when they encounter an ad using this angle. What are they feeling right now? What would make them stop scrolling?
 
 ## RELEVANT PAIN POINTS (max 5)
 Only the pain points from the research/avatar docs that this angle activates. Not all pain points — just the ones this angle touches.
@@ -1332,6 +1482,8 @@ export async function generateHeadlines(project, briefPacket, angle, count, angl
     }
     if (angleBrief.objection) parts.push(`OBJECTION TO ADDRESS: ${angleBrief.objection}`);
     if (angleBrief.failed_solutions) parts.push(`FAILED SOLUTIONS: ${angleBrief.failed_solutions}`);
+    if (angleBrief.current_belief) parts.push(`CURRENT BELIEF: ${angleBrief.current_belief}`);
+    if (angleBrief.emotional_state) parts.push(`EMOTIONAL STATE: ${angleBrief.emotional_state}`);
     if (angleBrief.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${angleBrief.desired_belief_shift} — headlines should move the reader toward this belief.`);
     if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
     if (angleBrief.avoid_list) parts.push(`AVOID: ${angleBrief.avoid_list}`);
@@ -1341,13 +1493,19 @@ export async function generateHeadlines(project, briefPacket, angle, count, angl
   const laneInstructions = laneAllocation
     .map(({ lane, count: laneCount }) => `- ${lane}: generate exactly ${laneCount} headline${laneCount === 1 ? '' : 's'}\n  ${HEADLINE_LANES[lane]}`)
     .join('\n');
+  const audienceContext = getProjectAudienceContext(project, briefPacket);
+  const angleAvoidList = formatAngleAvoidList(angleBrief);
+  const angleExampleBlock = buildAngleSpecificExampleBlock(angleBrief);
 
-  const prompt = `You are a world-class direct response copywriter writing Facebook ad headlines for health and wellness products targeting women 55-75. These women are skeptical, have been disappointed by other products, and need to feel safe, understood, and intrigued before they will engage.
+  const prompt = `You are a world-class direct response copywriter writing Facebook ad headlines for this specific project. Use the project materials below to understand who the audience is, what they want, and what would make them feel safe, understood, and intrigued before they engage.
+
+PROJECT AUDIENCE CONTEXT:
+${audienceContext}
 
 Your job is NOT to produce loosely varied headlines. Your job is to produce a diverse headline set where each hook feels meaningfully different in persuasion style, emotional entry point, and central claim.
 
 BRAND: ${project.brand_name || project.name}
-PRODUCT: ${project.product_description || ''}
+OFFER: ${project.product_description || ''}
 
 TARGET AUDIENCE IN THIS MOMENT:
 ${avatarSection || '(Not available)'}
@@ -1374,21 +1532,35 @@ ${laneInstructions}
 IMPORTANT DIVERSITY RULES:
 - Write exactly ${count} headlines total.
 - Every headline must belong to one of the allowed hook lanes above.
+- NON-NEGOTIABLE COLD-SCROLL REQUIREMENT: every visible headline must make sense to a cold Facebook scroller in 1 second with no prior context. Every headline must include BOTH:
+  1. An audience identifier: name who this is for in plain language from the project/angle context.
+  2. An offer identifier: name what is being offered, sold, or invited to in plain language from the project/product description.
+  Examples of audience identifiers: "Christians", "Christian counselors", "aspiring counselors", "parents", "coaches", "founders", or the actual niche audience from this project.
+  Examples of offer identifiers: "free webinar", "course", "program", "consultation", "training", "assessment", "shop", or the actual offer from this project.
+- NON-NEGOTIABLE ANGLE SIGNAL: every visible headline must also reflect at least one of the structured angle's core buyer language, scene fragment, symptom-pattern moment, objection, current belief, desired belief shift, or frame-style hook. The headline cannot be only an audience + offer label; it must carry the angle's specific reason to care.
+- Both rules apply to every headline: audience + offer identifier AND angle-specific signal. If a headline lacks either one, rewrite it before returning JSON.
+- EXAMPLES:
+  Bad: "Free Live Webinar" — names an offer but no audience and no angle signal.
+  Bad: "Get Clarity Today" — no audience, no offer, no angle signal.
+  Better: "Christians Considering Counseling? Free Webinar Maps Your Options" — audience + offer + decision-clarity angle.
+  Better: "Parents Comparing Teen Therapy Options? Free Assessment Helps" — audience + offer + comparison angle.
+- ${angleAvoidList ? `Do not produce headlines that read like: ${angleAvoidList}.` : 'Do not produce generic promise headlines that could fit any webinar, course, product, or brand.'}
 - No two headlines may share the same hook lane AND the same core claim.
 - No two headlines may start with the same opening phrase.
 - Do not recycle the same persuasion move with slightly different wording.
 - ${sceneLocked
-    ? `Every headline must stay unmistakably about this exact scene: ${angleBrief.scene}. Do not widen into adjacent sleep problems or generic consequences unless the bathroom-trip / back-in-bed / cannot-fall-asleep moment is still explicit.`
+    ? `Every headline must stay unmistakably about this exact scene: ${angleBrief.scene}. Variation is allowed in framing, but the lived moment must remain explicit.`
     : `The angle "${angle || 'general'}" is a strategic lens, not the headline text itself.`}
 - Headlines must be short. Maximum 12 words. Under 8 words is ideal when it still feels natural.
 - Avoid hype cliches, fake authority, miracle language, and anything that sounds like generic ad copy.
 - ${sceneLocked
-    ? 'For consequence-led headlines, the consequence must still be tied directly to the same middle-of-the-night wake-to-pee / back-in-bed moment.'
+    ? 'For consequence-led headlines, the consequence must still be tied directly to the same scene and prospect tension.'
     : 'Consequences can widen the frame as long as the line still feels specific and grounded.'}
 
 KEEP A SECONDARY "SUB-ANGLE" LABEL:
 - For each headline, include a short sub_angle label that captures the micro-angle or speaker perspective for that exact line.
 - This is a secondary variation layer inside the hook lane. Keep it short and concrete.
+${angleExampleBlock}
 
 STRUCTURED METADATA REQUIREMENTS:
 - hook_lane: one of the allowed lanes above
@@ -1421,12 +1593,12 @@ Return ONLY valid JSON:
       "rank": 1,
       "headline": "the headline text",
       "hook_lane": "symptom_recognition",
-      "sub_angle": "late-night stiffness",
-      "scene_anchor": "back in bed after a bathroom trip and instantly awake",
-      "core_claim": "morning stiffness may come from sleep setup",
-      "target_symptom": "waking up stiff and sore",
+      "sub_angle": "decision clarity",
+      "scene_anchor": "stuck comparing options and unsure what to choose",
+      "core_claim": "the right next step can become clear",
+      "target_symptom": "uncertainty about choosing the wrong path",
       "emotional_entry": "recognition",
-      "desired_belief_shift": "this problem has a specific, fixable cause",
+      "desired_belief_shift": "I can make a wise decision with clearer information",
       "opening_pattern": "direct_symptom",
       "primary_emotion": "recognition",
       "word_count": 8,
@@ -1596,6 +1768,7 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
   const quotes = extractBriefSection(briefPacket, 'RELEVANT QUOTES');
   const anchors = extractBriefSection(briefPacket, 'SPECIFICITY ANCHORS');
   const beliefs = extractBriefSection(briefPacket, 'RELEVANT BELIEFS');
+  const audienceContext = getProjectAudienceContext(project, briefPacket);
 
   // Build tone/avoid directives from structured brief
   let briefToneBlock = '';
@@ -1645,10 +1818,13 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
 
     const prompt = `You are a direct response creative strategist writing compact creative context for image generation. This is NOT final Facebook primary text and should NOT be rendered verbatim inside the image. Final Meta primary texts are written later after images pass QA.
 
-Write for women 55-75 dealing with chronic pain, broken sleep, and morning stiffness. Your context is warm, specific, honest, and sounds like a real person — not a brand.
+Write for the audience described in this project, using the offer, avatar, and research context below. Your context is warm, specific, honest, and sounds like a real person — not a brand.
+
+PROJECT AUDIENCE CONTEXT:
+${audienceContext}
 
 BRAND: ${project.brand_name || project.name}
-PRODUCT: ${project.product_description || ''}
+OFFER: ${project.product_description || ''}
 
 TONE RULES:
 - Never use hype language or miracle framing
@@ -1666,7 +1842,7 @@ ${beliefs || '(Not available)'}
 
 ---
 
-For each headline below, write one compact creative context block that explains the buyer moment, emotional pivot, and product bridge the image prompt should understand.
+For each headline below, write one compact creative context block that explains the buyer moment, emotional pivot, and offer bridge the image prompt should understand.
 
 RULES FOR EVERY CREATIVE CONTEXT:
 
@@ -1675,13 +1851,15 @@ RULES FOR EVERY CREATIVE CONTEXT:
 
 2. MAXIMUM 45 WORDS. This is image-generation context, not Meta primary text.
 
-3. INCLUDE ONE SPECIFIC, CONCRETE DETAIL: a time of night (2-4am), a body part (hips, knees, shoulders), a failed solution (melatonin, expensive mattress), or a life moment (playing with grandkids, dreading bedtime). "Better sleep" or "less pain" do NOT count as specific.
+3. INCLUDE ONE SPECIFIC, CONCRETE DETAIL from the project materials: a setting, question, decision point, failed solution, objection, exact phrase, or life moment. Generic improvement claims do NOT count as specific.
 
 4. DO NOT REPEAT THE HEADLINE TEXT in the context.
 
-5. DO NOT FORCE A CTA. Include a product bridge only if it helps the visual concept. The template text contract will decide how much copy appears on the image.
+5. DO NOT FORCE A CTA. Include an offer bridge only if it helps the visual concept. The template text contract will decide how much copy appears on the image.
 
 6. NONE of these phrases: "game-changer", "revolutionize", "transform your life", "the ultimate solution", "miracle", "breakthrough discovery", "you won't believe what happened next"
+
+7. DO NOT fabricate testimonials, reviewer names, review-score graphics, customer-volume claims, or specific statistics. Only use proof that appears in the project materials.
 
 ---
 
@@ -1691,8 +1869,8 @@ ${headlineList}
 
 For each headline, write ONE creative context block. Vary the structural approach across the five:
 - At least 1 should use STORY CONTINUATION (extend the narrative voice of the headline)
-- At least 1 should use PROBLEM-AGITATE (hit the pain with specific detail, then pivot to product)
-- At least 1 should use SOCIAL PROOF (open with what another woman experienced — a name, an age, a specific result)
+- At least 1 should use PROBLEM-AGITATE (hit the pain with specific detail, then pivot to the offer)
+- At least 1 should use PEER REFLECTION (sound like a grounded first-person realization without inventing a named testimonial, age, credential, or specific result)
 - The remaining can use whichever approach fits the headline best
 
 OUTPUT FORMAT — respond as JSON only:
@@ -1702,9 +1880,9 @@ OUTPUT FORMAT — respond as JSON only:
     {
       "headline": "...",
       "body_copy": "compact creative context for image generation, not final Meta primary text",
-      "structure": "story_continuation | problem_agitate | social_proof",
+      "structure": "story_continuation | problem_agitate | peer_reflection",
       "word_count": 42,
-      "specific_detail_used": "2-4am wakeups",
+      "specific_detail_used": "specific lived detail from the project materials",
       "closing_cta": null
     }
   ]
@@ -1873,13 +2051,15 @@ Return JSON only:
 export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio, angleBrief = null, headlineMeta = null, options = {}) {
   const documentaryMode = !!options.documentaryMode;
   const repairNotes = Array.isArray(options.repairNotes) ? options.repairNotes.filter(Boolean) : [];
+  const audienceContext = getProjectAudienceContext(project, options.audienceContextSource || null);
+  const offerRenderContext = getOfferRenderContext(project, options.audienceContextSource || null);
   // Build visual direction from structured angle brief
   let visualDirectionBlock = '';
   if (angleBrief && (angleBrief.scene || angleBrief.frame || angleBrief.tone)) {
     const parts = [];
     if (angleBrief.scene) parts.push(`SCENE/SETTING: ${angleBrief.scene} — the visual should evoke this moment`);
     if (angleBrief.frame) parts.push(`AD FRAME: ${angleBrief.frame} — inform the visual treatment accordingly`);
-    if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer} — the person in the image should feel like this woman`);
+    if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer} — the person in the image should feel like this prospect`);
     if (angleBrief.emotional_state) parts.push(`EMOTIONAL STATE TO CONVEY: ${angleBrief.emotional_state}`);
     if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
     if (angleBrief.avoid_list) parts.push(`VISUAL ELEMENTS TO AVOID: ${angleBrief.avoid_list}`);
@@ -1901,10 +2081,16 @@ export async function generateImagePrompt(project, headline, bodyCopy, primaryEm
   }
 
   const promptText = documentaryMode
-    ? `You are a creative director generating documentary-style image prompts for Meta ads aimed at women 55-75.
+    ? `You are a creative director generating documentary-style image prompts for Meta ads tailored to this project's audience.
+
+PROJECT AUDIENCE CONTEXT:
+${audienceContext}
+
+OFFER RENDERING CONTEXT:
+${offerRenderContext}
 
 BRAND: ${project.brand_name || project.name}
-PRODUCT CONTEXT: ${project.product_description || ''}
+OFFER CONTEXT: ${project.product_description || ''}
 
 ASPECT RATIO: ${aspectRatio || '1:1'}
 
@@ -1925,24 +2111,31 @@ Generate an image prompt that:
 
 1. Creates a pure documentary/lifestyle scene that visually expresses the headline and body copy without rendering any words.
 2. Centers the human moment, symptom pattern, and emotional state from the angle brief.
-3. Shows a realistic woman 55-75 in an authentic bedroom or home environment if the scene calls for it.
+3. Shows a realistic person, setting, or context that matches the project audience and the scene called for by the angle.
 4. Uses lighting, expression, posture, camera distance, and composition to communicate the exact frustration or relief in the copy.
 5. Prioritizes realism, intimacy, and specificity over polished ad-design aesthetics.
 6. Uses the specified aspect ratio: ${aspectRatio || '1:1'}
 
 CRITICAL NEGATIVES:
 - NO text overlays
-- NO logos, badges, bullets, testimonial cards, review stars, comparison layouts, before/after panels, mockups, coupons, or ad-template framing
-- NO product visible unless the angle brief explicitly demands it
-- NO flat-lay product photography
+- NO logos, badges, bullets, testimonial cards, review-score graphics, comparison layouts, before/after panels, mockups, coupons, or ad-template framing
+- NO physical item visible unless the project documentation explicitly describes a physical item
+- NO flat-lay item photography
 - NO branded footer or brand mark
 - NO split-screen or infographic composition
+- NO fabricated proof elements, reviewer names, customer-volume claims, named testimonial signatures, or invented statistics
 
 Treat the approved copy as semantic direction only. The output should be a photorealistic visual scene, not a designed ad layout.`
-    : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
+    : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals tailored to this project's specific offer, audience, and brand context.
+
+PROJECT AUDIENCE CONTEXT:
+${audienceContext}
+
+OFFER RENDERING CONTEXT:
+${offerRenderContext}
 
 BRAND: ${project.brand_name || project.name}
-PRODUCT APPEARANCE: ${project.product_description || ''}
+OFFER CONTEXT: ${project.product_description || ''}
 
 ASPECT RATIO: ${aspectRatio || '1:1'}
 
@@ -1960,24 +2153,24 @@ TEMPLATE TO MATCH:
 ---
 
 Analyze the template's visual structure:
-- Layout (where text sits, where product sits, visual hierarchy)
+- Layout (where text sits, where the main visual anchor sits, visual hierarchy)
 - Color palette and mood
 - Typography style (serif vs sans-serif, weight, contrast)
-- Use of badges, callouts, trust elements, or decorative frames
+- Use of callouts, decorative frames, or secondary text zones
 - Overall composition and whitespace
 
 Generate an image prompt that:
 
 1. Recreates the template's layout and composition style — adapted for ${project.brand_name || project.name}
-2. Features the product (${project.product_description || ''}) as the primary product visual, positioned where the template places its product. The product image will be composited in separately — so describe where it should go and at what scale, but focus the image prompt on the background, layout, and design elements.
+2. Adapts any product-shaped or hero-visual area into an offer-relevant visual anchor. For non-physical offers, use the prospect's lived scene, decision context, webinar setting, notes, calendar, screen, or other truthful context from the project materials instead of inventing a physical item.
 3. Places the EXACT headline text in the primary/dominant text position matching the template's hierarchy
 4. Places a key supporting line from the body copy (or the closing CTA) in the secondary text position if the template has one
 5. Places the brand name (${project.brand_name || project.name}) in a subtle position (footer, corner) matching the template
 6. Supports the emotional tone of the headline — the visual mood (colors, lighting, texture, casting, composition) should reinforce what the headline makes the reader feel and what belief shift it is trying to create. Skepticism angles get editorial/news-style treatments. Pain point angles get warm, empathetic tones. Relief angles get bright, calm aesthetics.
 7. Uses the specified aspect ratio: ${aspectRatio || '1:1'}
-8. Avoids generic stock photo aesthetics — aim for authentic, warm, realistic DTC ad quality that resonates with women 60-70
-9. Prioritizes scroll-stopping contrast and clean, conversion-focused design
-10. Includes realistic product representation — not cartoonish or overly polished
+8. Avoids generic stock photo aesthetics — aim for authentic, warm, realistic direct-response ad quality that resonates with the documented audience
+9. Prioritizes scroll-stopping contrast, clean hierarchy, and offer-relevant design
+10. Does not instruct the renderer to include fabricated proof elements, reviewer names, review-score graphics, customer-volume claims, named testimonial signatures, or invented statistics. If the project documentation contains real testimonials or proof, those can be referenced; otherwise omit proof elements.
 
 CRITICAL: The headline and body copy are FINAL. Do not rewrite, shorten, improve, or paraphrase them. Your job is visual execution only. Render the text exactly as provided.
 
@@ -2082,7 +2275,7 @@ Rules:
 - Estimate text zones from the image layout. If the template has no visible ad text, return text_density "none" and zones [].
 - If it has a long paragraph/testimonial block, mark that zone as long/heavy. Long copy is allowed only when the template visibly supports it.
 - Aspect ratio for the generated ad: ${aspectRatio || '1:1'}.
-- Brand/product context: ${project?.brand_name || project?.name || 'Unknown brand'} / ${project?.product_description || 'unknown product'}.`;
+- Brand/offer context: ${project?.brand_name || project?.name || 'Unknown brand'} / ${project?.product_description || 'unknown offer'}.`;
 
   try {
     const imageBase64 = readImageBase64(imageData);
@@ -2138,6 +2331,8 @@ function normalizePromptPackage(item, index, templateTextContract) {
  */
 export async function generateImagePromptsBatch(project, ads, imageData, aspectRatio, angleBrief = null, options = {}) {
   const documentaryMode = !!options.documentaryMode;
+  const audienceContext = getProjectAudienceContext(project, options.audienceContextSource || null);
+  const offerRenderContext = getOfferRenderContext(project, options.audienceContextSource || null);
   const templateTextContract = options.templateTextContract
     ? normalizeTemplateTextContract(options.templateTextContract, { documentaryMode })
     : await analyzeTemplateTextContract(project, imageData, aspectRatio, { documentaryMode });
@@ -2177,22 +2372,31 @@ PRIMARY EMOTION: ${ad.primary_emotion || 'curiosity'}${strategyBlock}`;
   }).join('\n\n');
 
   const modeInstruction = documentaryMode
-    ? `You are a creative director generating documentary-style image prompts for Meta ads aimed at women 55-75.
+    ? `You are a creative director generating documentary-style image prompts for Meta ads tailored to this project's audience.
 Generate pure documentary/lifestyle scenes that visually express each ad's copy without rendering any words.
-CRITICAL NEGATIVES: NO text overlays, NO logos, NO product unless the angle brief demands it, NO ad-template framing.`
-    : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
+CRITICAL NEGATIVES: NO text overlays, NO logos, NO physical item unless the project documentation demands it, NO ad-template framing.`
+    : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals tailored to this project's specific offer, audience, and brand context.
 ${imageData ? 'Analyze the attached template image for layout, color palette, typography, and composition. Each prompt should recreate this style.' : ''}
 Each prompt must follow the TEMPLATE TEXT CONTRACT below. Generate the on-image copy needed for the template's visible text zones. Do not render the full Meta primary-text paragraph inside the image unless the template contract explicitly contains a long body/testimonial zone.`;
 
   const promptText = `${modeInstruction}
 
+PROJECT AUDIENCE CONTEXT:
+${audienceContext}
+
+OFFER RENDERING CONTEXT:
+${offerRenderContext}
+
 BRAND: ${project.brand_name || project.name}
-PRODUCT: ${project.product_description || ''}
+OFFER: ${project.product_description || ''}
 ASPECT RATIO: ${aspectRatio || '1:1'}
 ${visualDirectionBlock}
 
 TEMPLATE TEXT CONTRACT:
 ${JSON.stringify(templateTextContract, null, 2)}
+
+FABRICATED-PROOF RULE:
+Do not instruct the renderer to include fabricated proof elements, reviewer names, review-score graphics, customer-volume claims, named testimonial signatures, or invented statistics. If the project documentation contains real testimonials or proof, those can be referenced; otherwise omit proof elements.
 
 I need you to generate ${ads.length} SEPARATE image prompts — one for each ad below. Each prompt must be tailored to its specific headline, body copy, and emotion.
 
@@ -2286,6 +2490,7 @@ export async function repairBodyCopy(project, options = {}) {
   if (!headline) {
     throw new Error('Headline is required for body copy repair.');
   }
+  const audienceContext = getProjectAudienceContext(project, options.audienceContextSource || null);
 
   const toneBits = [];
   if (angleBrief?.tone) toneBits.push(`TONE: ${angleBrief.tone}`);
@@ -2299,6 +2504,8 @@ export async function repairBodyCopy(project, options = {}) {
 BRAND: ${project?.brand_name || project?.name || 'Unknown brand'}
 HEADLINE: "${headline}"
 CURRENT BODY COPY: "${bodyCopy || ''}"
+PROJECT AUDIENCE CONTEXT:
+${audienceContext}
 ${toneBits.length > 0 ? `\nANGLE CONTEXT:\n${toneBits.join('\n')}` : ''}
 
 WHY THIS COPY FAILED:
@@ -2312,7 +2519,7 @@ REPAIR RULES:
 - Include at least one concrete detail.
 - The final sentence must be an explicit CTA using an action verb such as See, Read, Tap, Click, Learn, Find out, Watch, or Discover.
 - Do not repeat the headline verbatim.
-- Sound like a warm, credible direct-response ad for women 55-75.
+- Sound like a warm, credible direct-response ad for the documented audience.
 
 Return JSON only:
 {
@@ -2382,6 +2589,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
     subAngle,
     templateImageId,
     inspirationImageId,
+    cancelSignal,
   } = options;
 
   const emit = (event) => {
@@ -2428,14 +2636,19 @@ export async function regenerateImageOnly(projectId, options = {}) {
 
   const stopHeartbeat = startAdHeartbeat(adId);
   try {
+    await assertAdNotCancelled(adId, cancelSignal);
     const project = await getProject(projectId);
     if (!project) throw new Error('Project not found');
+    assertProductDescription(project);
+    await assertAdNotCancelled(adId, cancelSignal);
 
     // Apply prompt guidelines if set
     let finalPrompt = imagePrompt.trim();
     if (project.prompt_guidelines) {
+      await assertAdNotCancelled(adId, cancelSignal);
       emitProgress(emit, adId, { status: 'generating_image', message: 'Reviewing prompt against guidelines...', progress: 20 });
       finalPrompt = await reviewPromptWithGuidelines(finalPrompt, project.prompt_guidelines);
+      await assertAdNotCancelled(adId, cancelSignal);
       // Update the stored prompt if it changed
       if (finalPrompt !== imagePrompt.trim()) {
         await updateAdCreative(adId, {
@@ -2462,19 +2675,26 @@ export async function regenerateImageOnly(projectId, options = {}) {
       expectedHeadline: headline || null,
       expectedBodyCopy: bodyCopy || null,
       emit,
-      modeLabel: 'Regen'
+      modeLabel: 'Regen',
+      cancelSignal
     });
 
     return ad;
 
   } catch (err) {
+    if (isAdCancellationError(err, cancelSignal)) {
+      await markAdCancelled(adId, emit, {
+        image_attempts: serializeImageAttempts(err.imageAttempts),
+      });
+      return null;
+    }
     await updateAdCreative(adId, {
       status: 'failed',
       error_message: err.message,
       failure_stage: 'image_regeneration',
       image_attempts: serializeImageAttempts(err.imageAttempts),
     });
-    emit({ type: 'error', error: err.message });
+    emitAdError(emit, err);
     throw err;
   } finally {
     stopHeartbeat();

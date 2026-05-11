@@ -9,6 +9,7 @@ const STUCK_ADS_THRESHOLD_MIN = 5;
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit, assertTemplateTagHasActiveTemplates, normalizeTemplateTag } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat } from '../services/openai.js';
+import { buildAngleGenerationPrompt, buildHeadlineGenerationPrompt } from '../services/adStudioPrompts.js';
 
 // Same model the batch pipeline uses for copy generation (see commit 76c8109).
 const SINGLE_AD_TEXT_MODEL = 'gpt-5.2';
@@ -29,6 +30,10 @@ if (!fs.existsSync(THUMB_CACHE_DIR)) {
 const router = Router();
 router.use(requireAuth);
 
+const TERMINAL_AD_STATUSES = new Set(['completed', 'failed', 'cancelled', 'canceled', 'quality_rejected']);
+const CANCELLABLE_AD_STATUSES = new Set(['pending', 'queued', 'generating_copy', 'generating_image']);
+const CANCEL_POLL_MS = 2000;
+
 function attachAdMedia(projectId, ad) {
   return {
     ...ad,
@@ -48,6 +53,44 @@ async function repairStaleAdsForProject(projectId) {
     console.warn(`[ads-cleanup] failed for project ${projectId}:`, err.message);
     return { repaired: 0, error: err.message };
   }
+}
+
+function createAdCancellationWatcher(sendEvent) {
+  const controller = new AbortController();
+  let adId = null;
+  let pollTimer = null;
+
+  const stop = () => {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+  };
+
+  const start = (nextAdId) => {
+    if (!nextAdId || nextAdId === adId) return;
+    adId = nextAdId;
+    stop();
+    pollTimer = setInterval(async () => {
+      if (controller.signal.aborted || !adId) return;
+      try {
+        const ad = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId });
+        if (ad?.cancellation_requested_at || ad?.status === 'cancelled' || ad?.status === 'canceled') {
+          controller.abort(new Error('Cancelled by user'));
+        }
+      } catch (err) {
+        console.warn(`[Ads] Cancellation poll failed for ${adId}:`, err.message);
+      }
+    }, CANCEL_POLL_MS);
+    if (typeof pollTimer.unref === 'function') pollTimer.unref();
+  };
+
+  return {
+    signal: controller.signal,
+    sendEvent(event) {
+      if (event?.adId) start(event.adId);
+      sendEvent(event);
+    },
+    stop,
+  };
 }
 
 // Generate an ad creative (SSE stream)
@@ -110,36 +153,43 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   }
 
   streamService(req, res, async (sendEvent) => {
-    if (productImageWarning) {
-      sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
-    }
-    if (mode === 'mode2') {
-      await generateAdMode2(req.params.projectId, {
-        templateImageId: template_image_id,
-        angle,
-        aspectRatio: aspect_ratio || '1:1',
-        imageModel: image_model || undefined,
-        productImageBase64: product_image || undefined,
-        productImageMimeType: product_image_mime || undefined,
-        headline: headline || undefined,
-        bodyCopy: body_copy || undefined,
-        onEvent: sendEvent
-      });
-    } else {
-      await generateAd(req.params.projectId, {
-        angle,
-        aspectRatio: aspect_ratio || '1:1',
-        imageModel: image_model || undefined,
-        inspirationImageId: inspiration_image_id,
-        templateTag: template_tag || undefined,
-        uploadedImageBase64: uploaded_image || undefined,
-        uploadedImageMimeType: uploaded_image_mime || undefined,
-        productImageBase64: product_image || undefined,
-        productImageMimeType: product_image_mime || undefined,
-        headline: headline || undefined,
-        bodyCopy: body_copy || undefined,
-        onEvent: sendEvent
-      });
+    const cancellation = createAdCancellationWatcher(sendEvent);
+    try {
+      if (productImageWarning) {
+        cancellation.sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
+      }
+      if (mode === 'mode2') {
+        await generateAdMode2(req.params.projectId, {
+          templateImageId: template_image_id,
+          angle,
+          aspectRatio: aspect_ratio || '1:1',
+          imageModel: image_model || undefined,
+          productImageBase64: product_image || undefined,
+          productImageMimeType: product_image_mime || undefined,
+          headline: headline || undefined,
+          bodyCopy: body_copy || undefined,
+          onEvent: cancellation.sendEvent,
+          cancelSignal: cancellation.signal
+        });
+      } else {
+        await generateAd(req.params.projectId, {
+          angle,
+          aspectRatio: aspect_ratio || '1:1',
+          imageModel: image_model || undefined,
+          inspirationImageId: inspiration_image_id,
+          templateTag: template_tag || undefined,
+          uploadedImageBase64: uploaded_image || undefined,
+          uploadedImageMimeType: uploaded_image_mime || undefined,
+          productImageBase64: product_image || undefined,
+          productImageMimeType: product_image_mime || undefined,
+          headline: headline || undefined,
+          bodyCopy: body_copy || undefined,
+          onEvent: cancellation.sendEvent,
+          cancelSignal: cancellation.signal
+        });
+      }
+    } finally {
+      cancellation.stop();
     }
   });
 });
@@ -187,23 +237,29 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   }
 
   streamService(req, res, async (sendEvent) => {
-    if (productImageWarning) {
-      sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
+    const cancellation = createAdCancellationWatcher(sendEvent);
+    try {
+      if (productImageWarning) {
+        cancellation.sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
+      }
+      await regenerateImageOnly(req.params.projectId, {
+        imagePrompt: image_prompt.trim(),
+        aspectRatio: aspect_ratio || '1:1',
+        imageModel: image_model || undefined,
+        parentAdId: parent_ad_id || undefined,
+        productImageBase64: product_image || undefined,
+        productImageMimeType: product_image_mime || undefined,
+        referenceImageBase64: reference_image || undefined,
+        referenceImageMimeType: reference_image_mime || undefined,
+        angle: angle || undefined,
+        headline: headline || undefined,
+        bodyCopy: body_copy || undefined,
+        onEvent: cancellation.sendEvent,
+        cancelSignal: cancellation.signal
+      });
+    } finally {
+      cancellation.stop();
     }
-    await regenerateImageOnly(req.params.projectId, {
-      imagePrompt: image_prompt.trim(),
-      aspectRatio: aspect_ratio || '1:1',
-      imageModel: image_model || undefined,
-      parentAdId: parent_ad_id || undefined,
-      productImageBase64: product_image || undefined,
-      productImageMimeType: product_image_mime || undefined,
-      referenceImageBase64: reference_image || undefined,
-      referenceImageMimeType: reference_image_mime || undefined,
-      angle: angle || undefined,
-      headline: headline || undefined,
-      bodyCopy: body_copy || undefined,
-      onEvent: sendEvent
-    });
   });
 });
 
@@ -247,19 +303,7 @@ router.post('/:projectId/generate-angle', async (req, res) => {
 
     const result = await chat([{
       role: 'user',
-      content: `You are a direct response ad strategist. Based on the brand and audience docs below, suggest ONE specific, unexpected ad angle/topic.
-
-BRAND: ${project.brand_name || project.name}
-PRODUCT: ${project.product_description || ''}
-
-AVATAR (excerpt):
-${avatarSnippet}
-
-OFFER BRIEF (excerpt):
-${offerSnippet}
-
-Return ONLY a short angle phrase (3-10 words). No explanation, no quotes, no numbering. Just the angle.
-Examples of good angles: "the 3am bathroom trip nobody talks about", "why your doctor never mentioned this", "what grandma knew that science just proved"`,
+      content: buildAngleGenerationPrompt({ project, avatarSnippet, offerSnippet }),
     }], SINGLE_AD_TEXT_MODEL, { max_tokens: 100, operation: 'ad_angle_generation', projectId: req.params.projectId });
 
     const angle = result.trim().replace(/^["'"]+|["'"]+$/g, '');
@@ -293,27 +337,7 @@ router.post('/:projectId/generate-headline', async (req, res) => {
 
     const result = await chat([{
       role: 'user',
-      content: `You are a world-class direct response copywriter who writes scroll-stopping Facebook ad headlines for health/wellness products targeting women 55-75.
-
-BRAND: ${project.brand_name || project.name}
-PRODUCT: ${project.product_description || ''}
-${angle ? `AD ANGLE: "${angle}"` : ''}
-
-AVATAR (excerpt):
-${avatarSnippet}
-
-OFFER BRIEF (excerpt):
-${offerSnippet}
-
-${researchSnippet ? `RESEARCH (excerpt):\n${researchSnippet}` : ''}
-
-Write ONE scroll-stopping headline that:
-- Sounds like something a real person would say, not marketing copy
-- Is specific and emotional
-- Speaks directly to the target audience
-- ${angle ? `Focuses on the angle: "${angle}"` : 'Picks a compelling angle from the docs'}
-
-Return ONLY the headline text. No quotes, no labels, no explanation. Under 15 words.`,
+      content: buildHeadlineGenerationPrompt({ project, angle, avatarSnippet, offerSnippet, researchSnippet }),
     }], SINGLE_AD_TEXT_MODEL, { max_tokens: 150, operation: 'ad_headline_generation', projectId: req.params.projectId });
 
     const headline = result.trim().replace(/^["'"]+|["'"]+$/g, '');
@@ -398,6 +422,41 @@ router.get('/:projectId/ads/in-progress', async (req, res) => {
     await repairStaleAdsForProject(req.params.projectId);
     const ads = await getInProgressAdsByProject(req.params.projectId);
     res.json({ ads });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Request cancellation for an active single-ad generation.
+// The running SSE worker observes this flag and performs the terminal transition.
+router.post('/:projectId/ads/:adId/cancel', async (req, res) => {
+  try {
+    const ad = await getAd(req.params.adId);
+    if (!ad || ad.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Ad not found' });
+    }
+
+    if (TERMINAL_AD_STATUSES.has(ad.status)) {
+      return res.status(409).json({ error: `Cannot cancel ad in "${ad.status}" state.` });
+    }
+
+    if (!CANCELLABLE_AD_STATUSES.has(ad.status)) {
+      return res.status(409).json({ error: `Cannot cancel ad in "${ad.status || 'unknown'}" state.` });
+    }
+
+    const cancellationRequestedAt = new Date().toISOString();
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: req.params.adId,
+      cancellation_requested_at: cancellationRequestedAt,
+      cancelled_by: req.user?.username || req.user?.displayName || req.user?.id || 'unknown',
+      error_message: null,
+      failure_stage: null,
+    });
+
+    res.json({
+      success: true,
+      cancellation_requested_at: cancellationRequestedAt,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

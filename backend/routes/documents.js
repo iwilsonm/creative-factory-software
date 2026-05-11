@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, updateProject, getSystemDefaultAngle, createConductorAngle, invalidateQueryCache } from '../convexClient.js';
+import { getProject, getLatestDoc, updateProject, invalidateQueryCache } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
-  generateAllDocs,
   regenerateDoc,
   generateFromManualResearch,
   findAndCorrectDocs,
@@ -15,6 +14,7 @@ import {
 } from '../services/docGenerator.js';
 import { getHistory, logManualEdit, applyCorrections, revertCorrection } from '../services/correctionHistory.js';
 import { streamService } from '../utils/sseHelper.js';
+import { seedDirectOfferAngleForProject } from '../services/directOfferSeeder.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -22,7 +22,6 @@ const DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
 
 // Check if all 4 doc types exist and promote status to 'docs_ready' if so.
 // Only promotes from 'setup' — never demotes or interferes with 'generating_docs'.
-// Also ensures the BOF system angle exists when all docs are present.
 async function checkAndPromoteDocStatus(projectId) {
   try {
     const project = await getProject(projectId);
@@ -35,29 +34,11 @@ async function checkAndPromoteDocStatus(projectId) {
       await updateProject(projectId, { status: 'docs_ready' });
     }
 
-    // Create BOF system angle if all docs exist and it doesn't already exist
     if (allDocsExist) {
-      const existingBof = await getSystemDefaultAngle(projectId);
-      if (!existingBof) {
-        await createConductorAngle({
-          id: uuidv4(),
-          project_id: projectId,
-          name: 'BOF (Bottom of Funnel)',
-          description: 'Core Buyer: Warm prospects who already know the product — visited the site, seen ads, comparing options, almost ready to buy.\nSymptom Pattern: Hesitation at the point of purchase — needs one more push.\nObjection: Price concerns, skepticism about results.\nScene: Scrolling feed, pauses on a clean product-focused ad with a star rating and a limited-time offer.\nDesired Belief Shift: This product is proven, trustworthy, easy to buy, and worth buying now.',
-          core_buyer: 'Warm prospects who already know the product — visited the site, seen ads, comparing options, almost ready to buy',
-          symptom_pattern: 'Hesitation at the point of purchase — needs one more push: a better deal, stronger proof, or final reassurance',
-          objection: 'Price concerns, skepticism about results, uncertainty about whether this is the right product for them',
-          scene: 'Scrolling Facebook or Instagram feed, pauses on a clean product-focused ad with a star rating and a limited-time offer',
-          desired_belief_shift: 'This product is proven, trustworthy, easy to buy, and worth buying now',
-          tone: 'Direct, confident, conversion-focused — like a high-performing static Facebook ad',
-          avoid_list: 'Awareness-stage messaging, abstract artistic imagery, lifestyle mood images, overcrowded layouts, generic posters, long educational content',
-          prompt_hints: 'IMAGE DIRECTION — Conversion-focused ecommerce ad to close the sale: 1) PRODUCT VISUAL: Show the actual product clearly and prominently as the main focus. Clean, polished product shot. 2) HEADLINE: Short, direct headline that removes hesitation or gives a reason to buy now. 3) PROOF ELEMENT: Include star rating, customer count, review snippet, or before/after result. 4) TRUST/OFFER: Include guarantee, free shipping, limited-time discount, or doctor recommended. 5) CTA: "Shop Now", "Get Yours Today", or "Try It Risk-Free". DESIGN: Clean layout, product dominant, text short and bold, scannable in 1-2 seconds. Should feel like a mini sales page compressed into one static ad.',
-          source: 'system',
-          status: 'active',
-          priority: 'medium',
-          is_system_default: true,
-        });
-        console.log(`[Docs] Created BOF angle for project ${projectId}`);
+      try {
+        await seedDirectOfferAngleForProject(project, docs);
+      } catch (seedErr) {
+        console.error('[Docs] Direct Offer seed error:', seedErr.message);
       }
     }
   } catch (err) {
@@ -130,11 +111,8 @@ router.get('/:projectId/research-prompts', async (req, res) => {
       {
         step: 1,
         title: 'Step 1: Analyze Your Sales Page',
-        instruction: 'Start a new conversation in ChatGPT or Claude. Attach a PDF of your current PDP or sales page along with this prompt. To create the PDF, open the page in your browser, press Cmd+P on Mac or Ctrl+P on Windows, choose Save as PDF, then attach that file.',
-        tip: {
-          text: 'Recommended: use your browser\'s Print -> Save as PDF. If that does not capture the page well, you can search for a free web page to PDF converter and use it only for public, non-sensitive pages. For private pages, use browser Save as PDF or copy/paste the page text manually.'
-        },
-        alert: 'You need to attach a PDF of your PDP or sales page to the ChatGPT or Claude message along with this prompt. Without it, the AI has nothing visual or page-specific to analyze.',
+        instruction: 'Start a new conversation in ChatGPT or Claude and paste the prompt below. The product description you provided when creating this project is already included in the prompt — no attachment needed.',
+        alert: 'Make sure you insert the description of your product before running this prompt.',
         prompt: prompt1_AnalyzeSalesPage(
           project.product_description,
           project.sales_page_content
@@ -228,16 +206,6 @@ router.post('/:projectId/generate-docs-manual', async (req, res) => {
 
   streamService(req, res, (sendEvent) =>
     generateFromManualResearch(req.params.projectId, researchContent.trim(), sendEvent)
-  );
-});
-
-// Generate all foundational docs (SSE streaming)
-router.post('/:projectId/generate-docs', async (req, res) => {
-  const project = await getProject(req.params.projectId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-
-  streamService(req, res, (sendEvent) =>
-    generateAllDocs(req.params.projectId, sendEvent)
   );
 });
 

@@ -12,11 +12,19 @@ const mockGetConductorPlaybook = vi.fn();
 const mockCreateConductorRun = vi.fn();
 const mockUpdateConductorRun = vi.fn();
 const mockGetConductorRuns = vi.fn();
+const mockEnqueueConductorTestRun = vi.fn();
+const mockClaimQueuedConductorTestRun = vi.fn();
+const mockReleaseQueuedConductorTestRun = vi.fn();
+const mockCancelQueuedConductorTestRun = vi.fn();
+const mockGetConductorSlotsByPostingDay = vi.fn();
+const mockCreateConductorSlot = vi.fn();
+const mockUpdateConductorSlot = vi.fn();
 const mockCreateBatchJob = vi.fn();
 const mockGetBatchJob = vi.fn();
 const mockUpdateBatchJob = vi.fn();
 const mockGetAdsByBatchId = vi.fn();
 const mockGetAd = vi.fn();
+const mockGetAdSetsByProject = vi.fn();
 const mockGetFlexAdsByProject = vi.fn();
 const mockGetBatchesByProject = vi.fn();
 const mockGetProject = vi.fn();
@@ -56,11 +64,19 @@ vi.mock('../convexClient.js', () => ({
   createConductorRun: (...args) => mockCreateConductorRun(...args),
   updateConductorRun: (...args) => mockUpdateConductorRun(...args),
   getConductorRuns: (...args) => mockGetConductorRuns(...args),
+  enqueueConductorTestRun: (...args) => mockEnqueueConductorTestRun(...args),
+  claimQueuedConductorTestRun: (...args) => mockClaimQueuedConductorTestRun(...args),
+  releaseQueuedConductorTestRun: (...args) => mockReleaseQueuedConductorTestRun(...args),
+  cancelQueuedConductorTestRun: (...args) => mockCancelQueuedConductorTestRun(...args),
+  getConductorSlotsByPostingDay: (...args) => mockGetConductorSlotsByPostingDay(...args),
+  createConductorSlot: (...args) => mockCreateConductorSlot(...args),
+  updateConductorSlot: (...args) => mockUpdateConductorSlot(...args),
   createBatchJob: (...args) => mockCreateBatchJob(...args),
   getBatchJob: (...args) => mockGetBatchJob(...args),
   updateBatchJob: (...args) => mockUpdateBatchJob(...args),
   getAdsByBatchId: (...args) => mockGetAdsByBatchId(...args),
   getAd: (...args) => mockGetAd(...args),
+  getAdSetsByProject: (...args) => mockGetAdSetsByProject(...args),
   getFlexAdsByProject: (...args) => mockGetFlexAdsByProject(...args),
   getBatchesByProject: (...args) => mockGetBatchesByProject(...args),
   getProject: (...args) => mockGetProject(...args),
@@ -221,6 +237,10 @@ describe('conductorEngine test-run pipeline', () => {
       .mockReturnValueOnce('batch-uuid-3');
 
     mockGetConductorRuns.mockResolvedValue([]);
+    mockEnqueueConductorTestRun.mockResolvedValue({ queued: true, run: { externalId: 'queued-run-1', queue_position: 1 } });
+    mockClaimQueuedConductorTestRun.mockResolvedValue({ claimed: false, reason: 'none_available' });
+    mockReleaseQueuedConductorTestRun.mockResolvedValue({ released: true });
+    mockCancelQueuedConductorTestRun.mockResolvedValue({ cancelled: false, reason: 'not_queued' });
     mockGetConductorConfig.mockResolvedValue({ enabled: true });
     mockGetProject.mockResolvedValue(makeProject());
     mockGetActiveConductorAngles.mockResolvedValue([makeAngle()]);
@@ -230,6 +250,9 @@ describe('conductorEngine test-run pipeline', () => {
     mockUpdateConductorAngle.mockResolvedValue();
     mockCreateConductorRun.mockResolvedValue();
     mockUpdateConductorRun.mockResolvedValue();
+    mockGetConductorSlotsByPostingDay.mockResolvedValue([]);
+    mockCreateConductorSlot.mockResolvedValue();
+    mockUpdateConductorSlot.mockResolvedValue();
     mockCreateBatchJob.mockResolvedValue();
     mockRunBatch.mockResolvedValue();
     mockPollBatchJob.mockResolvedValue('completed');
@@ -242,6 +265,7 @@ describe('conductorEngine test-run pipeline', () => {
     mockHasStructuredBrief.mockReturnValue(false);
     mockBuildAngleBriefJSON.mockReturnValue({ frame: 'symptom-first' });
     mockGetFlexAdsByProject.mockResolvedValue([]);
+    mockGetAdSetsByProject.mockResolvedValue([]);
     mockGetBatchesByProject.mockResolvedValue([]);
     mockGetAllConductorConfigs.mockResolvedValue([]);
     mockGetSetting.mockImplementation(async (key) => ({
@@ -285,6 +309,7 @@ describe('conductorEngine test-run pipeline', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -307,6 +332,61 @@ describe('conductorEngine test-run pipeline', () => {
     }));
   });
 
+  it('queues a test run when another test run is already scoring for the same project', async () => {
+    mockGetConductorRuns.mockResolvedValueOnce([
+      {
+        externalId: 'active-run',
+        project_id: 'proj-1',
+        run_type: 'test',
+        status: 'scoring',
+      },
+    ]);
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
+
+    expect(result).toMatchObject({
+      queued: true,
+      runId: 'queued-run-1',
+      queue_position: 1,
+    });
+    expect(mockEnqueueConductorTestRun).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'proj-1',
+      queued_angle_id: 'angle-1',
+      required_passes: 5,
+    }));
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+  });
+
+  it('queues a test run when a scheduled Director run is active for the same project', async () => {
+    mockGetConductorRuns.mockResolvedValueOnce([
+      {
+        externalId: 'scheduled-run',
+        project_id: 'proj-1',
+        run_type: 'planning',
+        status: 'running',
+      },
+    ]);
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
+
+    expect(result.queued).toBe(true);
+    expect(mockEnqueueConductorTestRun).toHaveBeenCalled();
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+  });
+
+  it('cancels a queued durable test run by runId without touching active batches', async () => {
+    mockCancelQueuedConductorTestRun.mockResolvedValueOnce({ cancelled: true });
+
+    const { cancelTestRun } = await importConductorEngine();
+    const result = await cancelTestRun('proj-1', { runId: 'queued-run-1' });
+
+    expect(result).toBe(true);
+    expect(mockCancelQueuedConductorTestRun).toHaveBeenCalledWith('queued-run-1');
+    expect(mockUpdateBatchJob).not.toHaveBeenCalled();
+  });
+
   it('passes the selected approved-ad target into Ready-to-Post finalization', async () => {
     mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 3, 3));
 
@@ -320,6 +400,30 @@ describe('conductorEngine test-run pipeline', () => {
     expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
       targetCount: 3,
     }));
+  });
+
+  it('hands test-run Gemini waits to background resume before the Vercel ceiling', async () => {
+    let now = Date.parse('2026-05-08T10:00:00.000Z');
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      now += 70_000;
+      return now;
+    });
+    mockPollBatchJob.mockResolvedValue('processing');
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 3 });
+
+    expect(result).toMatchObject({
+      terminal_status: 'waiting_on_gemini',
+      run_in_background: true,
+    });
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith(result.runId, expect.objectContaining({
+      status: 'running',
+      terminal_status: 'waiting_on_gemini',
+      error_stage: 'gemini_waiting',
+      last_heartbeat_at: expect.any(String),
+    }));
+    expect(mockScoreBatchForInlineFilter).not.toHaveBeenCalled();
   });
 
   it('preflights and persists the selected template tag for test-run batches', async () => {
@@ -644,7 +748,7 @@ describe('conductorEngine test-run pipeline', () => {
     const result = await resumeBackgroundTestRuns();
 
     expect(result).toEqual({ checked: 1, resumed: 1, errors: 0 });
-    expect(mockScoreBatchForInlineFilter).toHaveBeenCalledWith('batch-uuid-2', 'proj-1', null, expect.objectContaining({
+    expect(mockScoreBatchForInlineFilter).toHaveBeenCalledWith('batch-uuid-2', 'proj-1', expect.any(Function), expect.objectContaining({
       roundNumber: 2,
     }));
     expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
@@ -1037,6 +1141,81 @@ describe('conductorEngine test-run pipeline', () => {
       total_ads_scored: 2,
       total_ads_passed: 1,
       failure_reason: expect.stringContaining('only 1/2 passed'),
+    }));
+  });
+
+  it('hydrates Director slot angles from the full conductor_angles row before creating a batch', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-05-06T21:00:00.000Z'));
+
+    const richAngle = makeAngle({
+      externalId: 'angle-rich-1',
+      name: 'Everyone Brings Their Pain To Her',
+      description: 'A calling angle about being the person others already bring pain to before formal training.',
+      prompt_hints: 'Center the weight of being trusted before feeling equipped.',
+      frame: 'calling-without-credentials',
+      core_buyer: 'Christians who are already trusted with painful conversations',
+      symptom_pattern: 'People bring heavy stories to them, but they feel unsure how to respond wisely',
+      times_used: 2,
+    });
+    mockGetConductorConfig.mockResolvedValue({
+      enabled: true,
+      daily_flex_target: 1,
+      ads_per_batch: 6,
+    });
+    mockGetActiveConductorAngles.mockResolvedValue([richAngle]);
+    mockGetConductorSlotsByPostingDay.mockResolvedValue([{
+      id: 'slot-1',
+      posting_day: '2026-05-08',
+      slot_index: 0,
+      angle_name: richAngle.name,
+      angle_external_id: richAngle.externalId,
+      status: 'reserved',
+      batch_ids: '[]',
+      attempt_count: 0,
+      failure_reason: '',
+    }]);
+    mockHasStructuredBrief.mockImplementation((angle) => Boolean(angle.frame || angle.core_buyer));
+    mockBuildStructuredAnglePrompt.mockImplementation((angle) => [
+      angle.name,
+      angle.description,
+      angle.core_buyer,
+      angle.symptom_pattern,
+    ].filter(Boolean).join('\n'));
+    mockBuildAngleBriefJSON.mockImplementation((angle) => ({
+      name: angle.name,
+      description: angle.description,
+      frame: angle.frame,
+      core_buyer: angle.core_buyer,
+      symptom_pattern: angle.symptom_pattern,
+    }));
+
+    const { runDirectorForProject } = await importConductorEngine();
+    const result = await runDirectorForProject('proj-1', 'manual');
+
+    expect(result.batches_created).toBe(1);
+    expect(mockCreateBatchJob).toHaveBeenCalledTimes(1);
+    const batchPayload = mockCreateBatchJob.mock.calls[0][0];
+    expect(batchPayload).toMatchObject({
+      angle_name: richAngle.name,
+      angle_prompt: expect.stringContaining(richAngle.description),
+      angle: expect.stringContaining(richAngle.core_buyer),
+    });
+    expect(batchPayload.angle_prompt).toContain('CREATIVE DIRECTION');
+    expect(batchPayload.angle_prompt).toContain(richAngle.prompt_hints);
+    expect(JSON.parse(batchPayload.angle_brief)).toMatchObject({
+      description: richAngle.description,
+      frame: richAngle.frame,
+      core_buyer: richAngle.core_buyer,
+      symptom_pattern: richAngle.symptom_pattern,
+    });
+    expect(mockBuildStructuredAnglePrompt).toHaveBeenCalledWith(expect.objectContaining({
+      externalId: richAngle.externalId,
+      description: richAngle.description,
+      core_buyer: richAngle.core_buyer,
+    }));
+    expect(mockUpdateConductorAngle).toHaveBeenCalledWith(richAngle.externalId, expect.objectContaining({
+      times_used: 3,
     }));
   });
 });

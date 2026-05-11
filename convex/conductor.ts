@@ -243,6 +243,60 @@ export const createAngle = mutation({
   },
 });
 
+export const seedDirectOfferAngle = mutation({
+  args: {
+    externalId: v.string(),
+    project_id: v.string(),
+    name: v.string(),
+    description: v.string(),
+    prompt_hints: v.optional(v.string()),
+    status: v.optional(v.string()),
+    priority: v.optional(v.string()),
+    frame: v.optional(v.string()),
+    core_buyer: v.optional(v.string()),
+    symptom_pattern: v.optional(v.string()),
+    failed_solutions: v.optional(v.string()),
+    current_belief: v.optional(v.string()),
+    objection: v.optional(v.string()),
+    emotional_state: v.optional(v.string()),
+    scene: v.optional(v.string()),
+    desired_belief_shift: v.optional(v.string()),
+    tone: v.optional(v.string()),
+    avoid_list: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_project", (q) => q.eq("project_id", args.project_id))
+      .collect();
+
+    const directOffer = existing.find((angle) => angle.source === "direct_offer" || angle.source === "default_bof");
+    if (directOffer) {
+      return { created: false, reason: "direct_offer_exists", externalId: directOffer.externalId };
+    }
+
+    const namedDirectOffer = existing.find((angle) => /^Direct Offer$/i.test(angle.name || "") || /^BOF\b/i.test(angle.name || ""));
+    if (namedDirectOffer) {
+      return { created: false, reason: "direct_offer_name_exists", externalId: namedDirectOffer.externalId };
+    }
+
+    const now = Date.now();
+    await ctx.db.insert("conductor_angles", {
+      ...args,
+      source: "direct_offer",
+      status: args.status || "active",
+      priority: args.priority || "medium",
+      is_system_default: true,
+      times_used: 0,
+      created_at: now,
+      updated_at: now,
+    });
+
+    return { created: true, reason: "created", externalId: args.externalId };
+  },
+});
+
 export const updateAngle = mutation({
   args: {
     externalId: v.string(),
@@ -574,6 +628,29 @@ export const getActiveRuns = query({
   },
 });
 
+export const getTestRunQueue = query({
+  args: { projectId: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const visibleStatuses = new Set(["queued", "running", "scoring", "repairing", "processing"]);
+    const runs = await ctx.db
+      .query("conductor_runs")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .order("desc")
+      .collect();
+    return runs
+      .filter((run) => run.run_type === "test" && visibleStatuses.has(run.status))
+      .sort((a, b) => {
+        if (a.status === "queued" && b.status === "queued") {
+          return (a.queue_position ?? 0) - (b.queue_position ?? 0);
+        }
+        if (a.status === "queued") return 1;
+        if (b.status === "queued") return -1;
+        return (b.run_at || b.created_at || 0) - (a.run_at || a.created_at || 0);
+      })
+      .slice(0, args.limit ?? 50);
+  },
+});
+
 export const createRun = mutation({
   args: {
     externalId: v.string(),
@@ -602,6 +679,13 @@ export const createRun = mutation({
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
     scoring_started_at: v.optional(v.number()),
+    last_heartbeat_at: v.optional(v.string()),
+    queue_position: v.optional(v.number()),
+    queued_at: v.optional(v.string()),
+    started_at: v.optional(v.string()),
+    queued_angle_id: v.optional(v.string()),
+    worker_lease_owner: v.optional(v.string()),
+    worker_lease_expires_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("conductor_runs", {
@@ -636,6 +720,13 @@ export const updateRun = mutation({
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
     scoring_started_at: v.optional(v.number()),
+    last_heartbeat_at: v.optional(v.string()),
+    queue_position: v.optional(v.number()),
+    queued_at: v.optional(v.string()),
+    started_at: v.optional(v.string()),
+    queued_angle_id: v.optional(v.string()),
+    worker_lease_owner: v.optional(v.string()),
+    worker_lease_expires_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db
@@ -650,6 +741,164 @@ export const updateRun = mutation({
       if (value !== undefined) filtered[key] = value;
     }
     await ctx.db.patch(run._id, filtered);
+  },
+});
+
+export const enqueueTestRun = mutation({
+  args: {
+    externalId: v.string(),
+    project_id: v.string(),
+    queued_angle_id: v.string(),
+    required_passes: v.number(),
+    ads_per_round: v.number(),
+    template_tag: v.optional(v.string()),
+    max_rounds: v.number(),
+    now: v.string(),
+    run_at: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const projectRuns = await ctx.db
+      .query("conductor_runs")
+      .withIndex("by_project", (q) => q.eq("project_id", args.project_id))
+      .collect();
+    const queuedRuns = projectRuns.filter((run) => run.run_type === "test" && run.status === "queued");
+    const maxPosition = queuedRuns.reduce((max, run) => Math.max(max, run.queue_position ?? 0), 0);
+    const queuePosition = maxPosition + 1;
+    await ctx.db.insert("conductor_runs", {
+      externalId: args.externalId,
+      project_id: args.project_id,
+      run_type: "test",
+      run_at: args.run_at,
+      status: "queued",
+      terminal_status: "queued",
+      decisions: `Queued test run #${queuePosition}.`,
+      required_passes: args.required_passes,
+      ads_per_round: args.ads_per_round,
+      template_tag: args.template_tag,
+      max_rounds: args.max_rounds,
+      queued_angle_id: args.queued_angle_id,
+      queued_at: args.now,
+      queue_position: queuePosition,
+      created_at: args.run_at,
+    });
+    return {
+      queued: true,
+      run: {
+        externalId: args.externalId,
+        project_id: args.project_id,
+        run_type: "test",
+        run_at: args.run_at,
+        status: "queued",
+        terminal_status: "queued",
+        decisions: `Queued test run #${queuePosition}.`,
+        required_passes: args.required_passes,
+        ads_per_round: args.ads_per_round,
+        template_tag: args.template_tag,
+        max_rounds: args.max_rounds,
+        queued_angle_id: args.queued_angle_id,
+        queued_at: args.now,
+        queue_position: queuePosition,
+        created_at: args.run_at,
+      },
+    };
+  },
+});
+
+export const claimQueuedTestRun = mutation({
+  args: {
+    owner: v.string(),
+    lease_expires_at: v.string(),
+    now: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const activeStatuses = new Set(["running", "scoring", "repairing", "processing"]);
+    const queuedRuns = await ctx.db
+      .query("conductor_runs")
+      .withIndex("by_status_and_queue_position", (q) => q.eq("status", "queued"))
+      .order("asc")
+      .collect();
+
+    for (const run of queuedRuns) {
+      const leaseOwner = run.worker_lease_owner || null;
+      const leaseExpiresAt = run.worker_lease_expires_at || null;
+      if (leaseOwner && leaseOwner !== args.owner && leaseExpiresAt && leaseExpiresAt > args.now) {
+        continue;
+      }
+
+      const projectRuns = await ctx.db
+        .query("conductor_runs")
+        .withIndex("by_project", (q) => q.eq("project_id", run.project_id))
+        .collect();
+      const activeRun = projectRuns.find((candidate) =>
+        candidate.externalId !== run.externalId && activeStatuses.has(candidate.status)
+      );
+      if (activeRun) continue;
+
+      const patch = {
+        status: "running",
+        terminal_status: "starting",
+        started_at: args.now,
+        last_heartbeat_at: args.now,
+        worker_lease_owner: args.owner,
+        worker_lease_expires_at: args.lease_expires_at,
+      };
+      await ctx.db.patch(run._id, patch);
+      return { claimed: true, run: { ...run, ...patch } };
+    }
+
+    return { claimed: false, reason: "none_available" };
+  },
+});
+
+export const releaseQueuedTestRun = mutation({
+  args: {
+    externalId: v.string(),
+    owner: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db
+      .query("conductor_runs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!run) return { released: false, reason: "not_found" };
+    if (run.worker_lease_owner && run.worker_lease_owner !== args.owner) {
+      return { released: false, reason: "not_owner" };
+    }
+    await ctx.db.patch(run._id, {
+      worker_lease_owner: "",
+      worker_lease_expires_at: "",
+    });
+    return { released: true };
+  },
+});
+
+export const cancelQueuedTestRun = mutation({
+  args: {
+    externalId: v.string(),
+    now: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db
+      .query("conductor_runs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!run) return { cancelled: false, reason: "not_found" };
+    if (run.status !== "queued") return { cancelled: false, reason: "not_queued", run };
+
+    const patch = {
+      status: "cancelled",
+      terminal_status: "cancelled",
+      error: "Cancelled by user",
+      failure_reason: "Cancelled by user",
+      error_stage: "cancelled",
+      duration_ms: 0,
+      last_heartbeat_at: args.now,
+      worker_lease_owner: "",
+      worker_lease_expires_at: "",
+      decisions: "Queued test run cancelled before it started.",
+    };
+    await ctx.db.patch(run._id, patch);
+    return { cancelled: true, run: { ...run, ...patch } };
   },
 });
 

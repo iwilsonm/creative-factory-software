@@ -288,7 +288,6 @@ export const api = {
     request(`/projects/${projectId}/revert-correction`, { method: 'POST', body: JSON.stringify({ correction_id: correctionId }) }),
 
   // SSE streams — returns an abort controller, calls onEvent for each SSE message
-  generateDocs: (projectId, onEvent) => streamSSE(`/projects/${projectId}/generate-docs`, onEvent),
   regenerateDoc: (projectId, docType, onEvent) => streamSSE(`/projects/${projectId}/generate-doc/${docType}`, onEvent),
   generateDocsManual: (projectId, researchContent, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/generate-docs-manual`, { researchContent }, onEvent),
@@ -414,6 +413,8 @@ export const api = {
     request(`/projects/${projectId}/ads`).then(data => normalizeArrayResponse(data, 'ads', 'api.getAds.ads')),
   getInProgressAds: (projectId) => request(`/projects/${projectId}/ads/in-progress`),
   getAd: (projectId, adId) => request(`/projects/${projectId}/ads/${adId}`),
+  cancelAd: (projectId, adId) =>
+    request(`/projects/${projectId}/ads/${adId}/cancel`, { method: 'POST' }),
   deleteAd: (projectId, adId) =>
     request(`/projects/${projectId}/ads/${adId}`, { method: 'DELETE' }),
   updateAdTags: (projectId, adId, tags) =>
@@ -451,18 +452,21 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
   deleteSetting: (key) => request(`/settings/${encodeURIComponent(key)}`, { method: 'DELETE' }),
-  testOpenAI: () => request('/settings/test-openai', { method: 'POST' }),
-  testOpenAIImage: (model = 'gpt-image-2') =>
-    request('/settings/test-openai-image', {
+  testOpenAI: (apiKey = '') =>
+    request('/settings/test-openai', {
       method: 'POST',
-      body: JSON.stringify({ model }),
+      ...(apiKey ? { body: JSON.stringify({ api_key: apiKey }) } : {}),
     }),
-  testGemini: () => request('/settings/test-gemini', { method: 'POST' }),
+  testGemini: (apiKey = '') =>
+    request('/settings/test-gemini', {
+      method: 'POST',
+      ...(apiKey ? { body: JSON.stringify({ api_key: apiKey }) } : {}),
+    }),
   // Phase 2 (PEF item G) — verify a specific OpenAI chat model is available.
-  testOpenAIModel: (model) =>
+  testOpenAIModel: (model, apiKey = '') =>
     request('/settings/test-model', {
       method: 'POST',
-      body: JSON.stringify({ model }),
+      body: JSON.stringify(apiKey ? { model, api_key: apiKey } : { model }),
       headers: { 'Content-Type': 'application/json' },
     }),
   testDrive: () => request('/settings/test-drive', { method: 'POST' }),
@@ -486,10 +490,15 @@ export const api = {
   deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`, `/conductor/angles/${projectId}/active`); return r; }),
   getConductorRuns: (projectId, limit) =>
     request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`).then(data => normalizeArrayResponse(data, 'runs', 'api.getConductorRuns.runs')),
+  getConductorTestQueue: (projectId, limit) =>
+    request(`/conductor/test-run/queue/${projectId}${limit ? `?limit=${limit}` : ''}`).then(data => normalizeArrayResponse(data, 'runs', 'api.getConductorTestQueue.runs')),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
   triggerConductorTestRun: (projectId, body, onEvent) => streamSSEWithBody(`/conductor/test-run/${projectId}`, body, onEvent),
   getTestRunProgress: (projectId) => request(`/conductor/test-run/progress/${projectId}`),
-  cancelTestRun: (projectId) => request(`/conductor/test-run/cancel/${projectId}`, { method: 'POST' }),
+  cancelTestRun: (projectId, runId = null) => request(`/conductor/test-run/cancel/${projectId}`, {
+    method: 'POST',
+    body: runId ? JSON.stringify({ runId }) : undefined,
+  }),
   getConductorPlaybooks: (projectId) =>
     cachedRequest(`/conductor/playbooks/${projectId}`).then(data => normalizeArrayResponse(data, 'playbooks', 'api.getConductorPlaybooks.playbooks')),
   getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),

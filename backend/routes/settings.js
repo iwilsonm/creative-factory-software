@@ -4,7 +4,6 @@ import { requireAuth, requireRole } from '../auth.js';
 import { getSetting, setSetting, deleteSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
 import { refreshGeminiRates } from '../services/costTracker.js';
-import { DEFAULT_OPENAI_IMAGE_MODEL, testOpenAIImageAccess } from '../services/openaiImageAccess.js';
 
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
@@ -24,7 +23,6 @@ const ALLOWED_SETTING_KEYS = [
   'gemini_rate_1k',
   'gemini_rate_2k',
   'gemini_rate_4k',
-  'openai_image_rate_per_image',
   'cloudflare_account_id',
   'cloudflare_api_token',
   'cloudflare_pages_projects',
@@ -131,7 +129,8 @@ router.delete('/:key', async (req, res) => {
 
 // Test OpenAI connection
 router.post('/test-openai', async (req, res) => {
-  const apiKey = await getSetting('openai_api_key');
+  const candidateKey = typeof req.body?.api_key === 'string' ? req.body.api_key.trim() : '';
+  const apiKey = candidateKey || await getSetting('openai_api_key');
   if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not configured' });
 
   try {
@@ -147,17 +146,6 @@ router.post('/test-openai', async (req, res) => {
   }
 });
 
-// Test real GPT Image model access. This is intentionally separate from the
-// generic /models check because org verification and image-model availability
-// can fail even when a normal OpenAI key check succeeds.
-router.post('/test-openai-image', async (req, res) => {
-  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
-  const model = requestedModel || DEFAULT_OPENAI_IMAGE_MODEL;
-  const apiKey = await getSetting('openai_api_key');
-  const result = await testOpenAIImageAccess({ apiKey, model });
-  res.json(result);
-});
-
 // Phase 2 (PEF item G) — verify a specific OpenAI chat model is callable
 // before Ian saves it as `openai_lp_image_strategy_model`. Catches typos and
 // model deprecations at config time instead of at runtime mid-generation.
@@ -166,7 +154,8 @@ router.post('/test-model', async (req, res) => {
   if (!model || typeof model !== 'string') {
     return res.status(400).json({ error: 'model (string) required in body' });
   }
-  const apiKey = await getSetting('openai_api_key');
+  const candidateKey = typeof req.body?.api_key === 'string' ? req.body.api_key.trim() : '';
+  const apiKey = candidateKey || await getSetting('openai_api_key');
   if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not configured' });
 
   try {
@@ -208,7 +197,8 @@ router.post('/test-model', async (req, res) => {
 
 // Test Gemini connection
 router.post('/test-gemini', async (req, res) => {
-  const apiKey = await getSetting('gemini_api_key');
+  const candidateKey = typeof req.body?.api_key === 'string' ? req.body.api_key.trim() : '';
+  const apiKey = candidateKey || await getSetting('gemini_api_key');
   if (!apiKey) return res.status(400).json({ error: 'Gemini API key not configured' });
 
   try {

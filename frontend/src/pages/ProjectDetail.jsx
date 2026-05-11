@@ -201,8 +201,9 @@ export default function ProjectDetail() {
     if (!id) return;
     (async () => {
       try {
-        const angles = await api.getConductorAngles(id);
-        setConductorAngles(Array.isArray(angles) ? angles : []);
+        const result = await api.getConductorAngles(id);
+        const angles = Array.isArray(result) ? result : (result?.angles || []);
+        setConductorAngles(angles);
       } catch { setConductorAngles([]); }
     })();
   }, [id]);
@@ -411,7 +412,7 @@ export default function ProjectDetail() {
           </div>
           <button
             onClick={() => { setTab('overview'); setSettingsSubTab('docs'); }}
-            className="px-4 py-1.5 text-[12px] rounded-[7px] bg-ed-accent text-[#fbfaf6] border border-ed-accent hover:bg-ed-accent/90 transition-colors"
+            className="px-4 py-1.5 text-[12px] rounded-[7px] bg-ed-accent text-white border border-ed-accent hover:bg-ed-accent/90 transition-colors"
           >
             Generate Docs
           </button>
@@ -625,7 +626,7 @@ export default function ProjectDetail() {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-[13px] py-[7px] text-[12.5px] rounded-[7px] bg-ed-accent text-[#fbfaf6] border border-ed-accent hover:bg-ed-accent/90 transition-colors"
+                className="px-[13px] py-[7px] text-[12.5px] rounded-[7px] bg-ed-accent text-white border border-ed-accent hover:bg-ed-accent/90 transition-colors"
               >
                 {saving ? 'Saving...' : 'Save changes'}
               </button>
@@ -696,7 +697,7 @@ export default function ProjectDetail() {
         )}
         {tab === 'ads' && (
           <ErrorBoundary level="tab" key="ads">
-            <AdStudio projectId={id} project={project} onOpenPipeline={openPipelineQueue} />
+            <AdStudio projectId={id} project={project} conductorAngles={conductorAngles} onOpenPipeline={openPipelineQueue} />
           </ErrorBoundary>
         )}
         {tab === 'tracker' && (
