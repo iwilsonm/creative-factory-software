@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   getConductorConfig, upsertConductorConfig, getAllConductorConfigs,
   getConductorAngles, getActiveConductorAngles, createConductorAngle, updateConductorAngle, deleteConductorAngle,
-  getConductorRuns, createConductorRun,
+  getConductorRuns, getConductorTestQueue, createConductorRun,
   getConductorPlaybooks, getConductorPlaybook,
   getConductorSlots,
   getAdSetsByProject, getBatchesByProject,
@@ -377,7 +377,7 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
       return res.status(404).json({ error: 'Batch not found' });
     }
 
-    // Phase 6 — LP Agent removed from Creative Factory entirely.
+    // Phase 6 — LP Agent removed from this fork entirely.
     // landing_pages table no longer used; this endpoint returns empty pages
     // and a static unavailable reason for any frontend that still queries it.
     const landingPages = [];
@@ -520,7 +520,9 @@ router.post('/test-run/:projectId', async (req, res) => {
       adsPerAdSetTarget: selectedTarget,
       templateTag: template_tag || '',
     });
-    if (result.pipeline_failed) {
+    if (result.queued) {
+      sendEvent({ type: 'queued', ...result });
+    } else if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });
     } else if (result.run_in_background) {
       sendEvent({ type: 'background', ...result });
@@ -534,8 +536,20 @@ router.post('/test-run/:projectId', async (req, res) => {
 router.post('/test-run/cancel/:projectId', async (req, res) => {
   try {
     const { cancelTestRun } = await import('../services/conductorEngine.js');
-    const cancelled = await cancelTestRun(req.params.projectId);
+    const runId = typeof req.body?.runId === 'string' ? req.body.runId.trim() : null;
+    const cancelled = await cancelTestRun(req.params.projectId, { runId });
     res.json({ success: true, cancelled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/conductor/test-run/queue/:projectId — durable queued/running test runs
+router.get('/test-run/queue/:projectId', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const runs = await getConductorTestQueue(req.params.projectId, limit);
+    res.json({ runs });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

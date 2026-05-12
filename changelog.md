@@ -1,5 +1,156 @@
 # Creative Factory — Changelog
 
+## 2026-05-08 — Cold-scroll angle prompt
+
+- Angle-gen prompt template delivered via Copy LLM Prompt now produces cold-scroll-aware angles: Symptom Pattern asks for recurring recognition patterns, Scene to Center asks for emotional truth rather than literal moments, and a new AI Rendering Warning explains that structured fields may be rendered verbatim by the ad system.
+
+## 2026-05-08 — Test-run UI background handoff reconciliation
+
+- Test-run frontend now reconciles local queue items against durable `conductor_runs` state when SSE active-run polling goes empty after the background handoff.
+- Added a short "Checking final run status..." grace state before declaring a missing durable run failed, and normalized completed/deployed durable rows so they always render as successful queue results.
+
+## 2026-05-08 — Creative Director heartbeat + test-run handoff
+
+- Added `last_heartbeat_at` to `conductor_runs` and updated the stale-generation sweeper to prefer it before older run timestamps, with a defensive fallback to active spawned-batch heartbeats while a Director test run is waiting on Gemini.
+- Creative Director test runs now hand Gemini waits back to the background scheduler after a short inline wait instead of holding the SSE function open toward Vercel's 800s ceiling.
+- Filter scoring now refreshes the conductor run heartbeat while ads are scored, so long scoring rounds do not look stale.
+
+## 2026-05-08 — Ecommerce-default cleanup
+
+- Comprehensive ecommerce-default cleanup. Replaced the legacy BOF default with Direct Offer seeding and deleted existing BOF rows from production after deploy.
+- Stage 3 image prompts are now offer-agnostic by default: no hardcoded product visuals, proof badges, trust elements, or female-only "this woman" framing for non-ecommerce offers.
+- `docGenerator` synthesis prompts no longer prime as "my ecommerce brand that sells"; Stage 0/1 copy prompts now use offer/person language, removed sleep/bathroom remnants, and rewrote headline lanes to avoid testimonial/product-review fabrication.
+
+## 2026-05-07 — Meta API setup instructions
+
+- Settings page: Meta API setup instructions updated to match the current Meta developer dashboard (5-step Create App wizard, business portfolio selection, App Domain + Facebook Login for Business OAuth Redirect URI configuration, Vercel env vars for token refresh).
+
+## 2026-05-07 — Stage 1 headline specificity filter
+
+- Stage 1 candidate generation now includes a stricter angle-signal requirement, dynamic generic-rejection examples, and the angle's avoid list so candidates must reflect the selected angle's buyer, scene, symptom, objection, current belief, or frame.
+- Batch headline selection now rejects candidates with zero angle signal and generic offer/category headlines like "Free Live Webinar" or "FINDING YOUR CALLING" unless the visible headline also includes angle-specific language.
+- Verified with a small production batch on Christian Counsellor Webinar: 13 generated, 5 scene rejects, angle-signal filter active, 3 selected, 3/3 saved; no generic offer/category headline slipped through.
+
+## 2026-05-07 — Director angle hydration fix verified
+
+- Fixed Director angle hydration: `runDirectorForProject` now hydrates the full `conductor_angles` row before creating a batch, so `batch.angle`, `angle_prompt`, and `angle_brief` carry the selected angle's description and structured fields instead of only name/externalId.
+- Verified end-to-end with a production run on Christian Counsellor Webinar. The existing slot needed one 3-ad top-up and a temporary second Director slot produced one 6-ad batch; both completed, with 9/9 ad creatives saved and Stage 0/1 logs showing structured angle context instead of `undefined`.
+- Restored the Director config target after the test; total measured API cost for the run was $0.438791.
+
+## 2026-05-07 — Director production test + Ad Studio prompt cleanup
+
+- Ran a production Director test on Christian Counsellor Webinar: Director created one 6-ad batch, Gemini Batch completed 6/6, and all six ad creatives were saved.
+- Removed residual health/wellness and women 55-75 hardcoding from Ad Studio angle/headline prompt builders in `backend/routes/ads.js`; prompts now derive audience context from project docs like the batch path.
+
+## 2026-05-07 — Director enablement and batch prompt hardening
+
+- Seeded an active Creative Director config for the Christian Counsellor Webinar project and added a daily CRON_SECRET-gated `/api/cron/director` route at 12:00 UTC.
+- Removed DTC / women 55-75 hardcoded audience language from batch prompt generation; batch headlines, body context, and image prompts now derive audience context from the project summary, niche, and avatar/foundational docs.
+- Batch Gemini image generation now requests `1K` images, matching the single-ad reliability default.
+
+## 2026-05-07 — Empty product description hardening
+
+- Populated `product_description` for the Christian Counsellor Webinar project in production Convex.
+- Ad generation now blocks before provider calls when `product_description` is empty and returns an actionable Project Settings link.
+- ProjectSetup now awaits auto-describe on submit, surfaces auto-describe failures visibly, and disables Create while product context is being generated.
+
+## 2026-05-07 — Template Library preview modal portal
+
+- Template Library preview modal now renders via `createPortal` into `document.body`, avoiding ancestor transform/filter breaking `position: fixed` viewport anchoring.
+- Added a body-scroll lock with scrollbar compensation while the preview modal is open.
+
+## 2026-05-07 — User-cancellable ad generation
+
+- Added user-cancellable single-ad generation with a new `/cancel` endpoint, `cancellation_requested_at` and `cancelled_by` fields on `ad_creatives`, and step-boundary cancellation polling in the ad generator.
+- Threaded cancellation through long-running provider calls: OpenAI copy generation now receives an abort signal, and Gemini image generation composes user cancellation with its existing per-attempt timeout signal.
+- The Ad Studio queue now shows a Cancel button for in-flight ad rows and transitions cancelled work to a terminal `cancelled` state without involving batch generation.
+
+## 2026-05-07 — Fix pinned projects initial sidebar load
+
+- Fixed pinned projects not appearing in the sidebar after initial login when the layout's first pinned-project fetch runs before auth/settings data is stable.
+- The sidebar now reloads pinned projects when the authenticated user identity hydrates, retries once when the first settings response is empty/missing, and logs fetch failures to the console instead of silently swallowing them.
+
+## 2026-05-06 — Harden Gemini image generation
+
+- Single-ad Gemini renders now request `1K` images instead of `2K`, and each synchronous Gemini attempt can run up to 180 seconds before aborting.
+- Gemini 503/high-demand responses are classified as `provider_unavailable`, retried once with a short backoff, and surfaced with a distinct user-facing message.
+- No-image Gemini responses are classified as `no_image_returned`, retried once, and persisted with finish reason, part types, text excerpt, safety ratings, and queue-depth diagnostics.
+- Added a legacy `gemini-3-pro` alias to route to Nano Banana Pro explicitly, and stored Gemini attempt telemetry now includes queue depth at limiter entry.
+
+## 2026-05-06 — OpenAI and Anthropic quota error parity
+
+- OpenAI and Anthropic wrappers now distinguish billing/account-state quota failures from transient rate limits, mirroring the Gemini zero-quota behavior.
+
+## 2026-05-06 — Remove GPT Image 2
+
+- Removed the GPT Image 2 / OpenAI image-generation path, including the Settings test, AdStudio model option, backend route/service/tests, provider routing, and `openai_image_rate_per_image` setting.
+
+## 2026-05-06 — Manual-only foundational research
+
+- Removed API-based auto deep research from foundational documents. Manual research prompts, research upload, direct document upload, and downstream synthesis from uploaded research remain available.
+
+## 2026-05-06 — Clarify Gemini zero-quota image errors
+
+- Gemini wrapper now surfaces a clearer error when Google returns limit: 0 / free_tier quota (billing/account state is the real cause), distinct from transient rate limits.
+
+## 2026-05-06 — Creative Factory brand asset
+
+- Logos replaced with actual Creative Factory brand PNG (Creative Factory logo on transparent). User-visible brand string flipped to one-word "Creative Factory" to match the asset. Internal slugs unchanged.
+
+## 2026-05-06 — Settings tests persist successful API keys
+
+- OpenAI, Gemini, and OpenAI Image Settings tests now save a pasted key after a successful test, matching the existing Anthropic pattern.
+- The test buttons still fall back to testing previously saved keys when the input field is empty.
+
+## 2026-05-06 — Restore Vercel cron secret
+
+- Restored `CRON_SECRET` in Vercel production with a newly generated 64-character hex secret so Vercel Cron routes can authenticate.
+- Documented missing production cron-path env gaps separately from the env-only fix.
+
+## 2026-05-06 — Stabilize Vercel Convex binding
+
+- Replaced the blank Vercel production `CONVEX_URL` project env value with the dedicated Creative Factory Convex deployment URL.
+- Verified no checked-in Vercel env block or deploy script is rewriting `CONVEX_URL`; the live binding is now validated across consecutive production deploys.
+
+## 2026-05-06 — Settings API key test routes accept pasted keys
+
+- Settings test routes (openai/gemini/openai-image/test-model) accept `api_key` in the request body, matching the Anthropic pattern.
+- Fixes "key not configured" false positives caused by per-instance settings cache staleness on serverless.
+
+## 2026-05-06 — Drop manual research PDF attachment guidance
+
+- Drop PDF-attachment guidance from manual research walkthrough Step 1; product description is now in the prompt body itself.
+- Removed the Step 1 tip and alert fields so the frontend no longer shows the obsolete amber warning block.
+
+## 2026-05-06 — Restore project sales_page_content persistence
+
+- Restore `sales_page_content` persistence on projects table — fixes deep research input gap. Schema + mapper + whitelist + POST handler updated. Convex prod deployed.
+- Added `sales_page_content` back to the Convex `projects` table as an optional string and allowed it through project create/update paths.
+- Returned `sales_page_content` from the backend project mapper so document generation can receive the user's detailed product/offering description.
+
+## 2026-05-06 — ProjectSetup product input simplified
+
+- ProjectSetup product input switched from PDF/paste sales page to free-form product description textarea; prompt1 intro updated; downstream pipeline unchanged.
+- Kept the internal `sales_page_content` form key and `salesPageContent` prompt variable names unchanged so existing backend contracts keep working.
+- Left `DragDropUpload` intact for Foundational Docs research/document upload flows.
+
+## 2026-05-06 — Creative Factory rebrand
+
+- Creative Factory rebrand — navy/gold color theme, sidebar/login logos, user-visible wordmark; internal slugs unchanged.
+- Replaced customer-facing Creative Factory brand copy with Creative Factory in the app shell, login, settings, Meta connection copy, analytics labels, HTML title, and README.
+- Added new black/currentColor SVG assets for the sidebar mark, full sidebar/login wordmark, and SVG favicon.
+- Remapped the editorial color tokens and legacy Tailwind brand aliases from the prior navy/gold/rust theme to a navy/gold/editorial palette while preserving the existing layout and component structure.
+
+## 2026-05-06 — Creative Factory Convex Deployment Cutover + Identity Cleanup
+
+- Provisioned a new dedicated Creative Factory Convex project and deployed the current schema/functions to its dev and production deployments.
+- Rebound local Convex env files to `https://elated-mastiff-709.convex.cloud` / `dev:elated-mastiff-709`.
+- Documented the Vercel production target as `https://elated-mastiff-709.convex.cloud` / `prod:elated-mastiff-709`.
+- Updated product identity from the source-product naming to Creative Factory across package metadata, Convex system capabilities, health response, UI copy, docs, README, and local env comments.
+- Verified the new Creative Factory Convex deployment is empty across all schema tables and Convex file storage.
+- Completed Vercel production env cutover using the provided token: added `CONVEX_URL` for the new Creative Factory production Convex deployment, redeployed production, and reassigned `https://creative-factory-software.vercel.app` to deployment `https://creative-factory-software-ddnxndze3.vercel.app` at 2026-05-06 14:59 ICT.
+- Confirmed live `/login` starts from a clean setup state and live `/api/health` reports the new Creative Factory production Convex host. Creative Factory-side cleanup remains out of scope and is handled separately by Ian via the Convex dashboard.
+
 ## 2026-05-06 — Add reversible project archive flow
 
 **Feature**

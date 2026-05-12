@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, useContext } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { AuthContext } from '../App';
 import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
 import { ensureArray } from '../utils/collections';
@@ -9,6 +10,7 @@ import CreativeFilterSettings from './CreativeFilterSettings';
 import InfoTooltip from './InfoTooltip';
 import TemplateTagHelp from './TemplateTagHelp';
 import EditorialPageHeader from './editorial/EditorialPageHeader';
+import { buildAnglePromptText } from '../utils/anglePrompt';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-ed-green',       icon: '\u2713', bg: 'bg-ed-green/10' },
@@ -49,6 +51,17 @@ function angleHasTag(angle, tag) {
   if (!normalized) return true;
   return Array.isArray(angle?.tags)
     && angle.tags.some(value => String(value || '').trim().toLowerCase() === normalized);
+}
+
+const REQUIRED_FOUNDATIONAL_DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
+
+function hasCompleteFoundationalDocs(docs = []) {
+  const types = new Set(ensureArray(docs, 'AgentMonitor.director.foundationalDocs').map(doc => doc?.doc_type).filter(Boolean));
+  return REQUIRED_FOUNDATIONAL_DOC_TYPES.every(type => types.has(type));
+}
+
+function normalizeAngleNameForMatch(name) {
+  return String(name || '').trim().toLowerCase();
 }
 
 function timeAgo(dateStr) {
@@ -918,150 +931,6 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
   );
 }
 
-/**
- * Builds a self-contained LLM prompt that, when pasted into ChatGPT/Claude, asks the
- * model to return a markdown file matching the exact format the "Import Angles" flow
- * in this component parses. The produced markdown can be saved as .md and dropped
- * into the Import panel directly.
- *
- * Output format reference: `parseAnglesMarkdown` in this file expects:
- *   ## <Angle Name>
- *   - **Status**: active
- *   - **Priority**: highest|high|medium|test
- *   - **Frame**: symptom-first|scam|objection-first|identity-first|MAHA|news-first|consequence-first
- *   ### Core Buyer
- *   ### Symptom Pattern
- *   ### Failed Solutions
- *   ### Current Belief
- *   ### Objection
- *   ### Emotional State
- *   ### Scene to Center the Ad On
- *   ### Desired Belief Shift
- *   ### Tone
- *   ### Avoid
- *   ---
- *   (next angle...)
- */
-function buildAnglePromptText({ brand, productName, niche, productDesc }) {
-  const productLine = productName && brand && productName !== brand
-    ? `${brand} — ${productName}`
-    : brand;
-
-  return `You are a world-class direct-response copywriter brainstorming Facebook ad angles for the brand below.
-
-Return **8 distinct angles** as a single markdown document, formatted *exactly* as specified at the bottom of this message. The markdown will be imported verbatim into an ad-generation system; any deviation from the format will cause angles to be silently dropped.
-
-=============================
-BRAND CONTEXT
-=============================
-Brand: ${productLine}
-Niche / market: ${niche}
-Product description: ${productDesc}
-
-=============================
-WHAT AN ANGLE IS
-=============================
-An "angle" is a single creative lens — a specific emotional story, buyer identity, or belief shift — that a whole ad set can be generated around. A good angle set covers the same product from meaningfully different emotional entry points.
-
-Each angle must include these 13 properties:
-
-1. **Name** — a short, evocative label (4-10 words). Use the ad's core idea, not the product. Example: "The 2 AM Wake-Up Nobody Talks About".
-
-2. **Status** — always "active" for new angles.
-
-3. **Priority** — one of: \`highest\`, \`high\`, \`medium\`, \`test\`. Use "highest" for 1-2 angles you're most confident about; "high" for solid bets; "medium" for supporting angles; "test" for exploratory ideas.
-
-4. **Frame** — the persuasion archetype. Choose exactly one of:
-   - \`symptom-first\` — open with a visceral specific symptom the buyer is living through
-   - \`scam\` — the incumbent industry is misleading them; here's the truth
-   - \`objection-first\` — address the #1 skepticism up front and flip it
-   - \`identity-first\` — speak to who they believe they are ("People like us don't need…")
-   - \`MAHA\` — Make America Healthy Again / populist-health framing (skip if not health-adjacent)
-   - \`news-first\` — a recent finding, study, or event justifies the product
-   - \`consequence-first\` — lead with the cost of inaction
-
-5. **Core Buyer** — 1-2 sentences describing who this specific ad is for. Be concrete: age, gender, life stage, income bracket only when relevant, current role of the problem in their life.
-
-6. **Symptom Pattern** — the exact lived experience the ad centers on. Not a category ("poor sleep") — a moment ("wakes at 2:47 AM, lies there calculating hours left until the alarm"). 2-4 sentences.
-
-7. **Failed Solutions** — what they've already tried that hasn't worked. Be specific. 1-3 sentences or a short bulleted list in prose form.
-
-8. **Current Belief** — the limiting or incorrect belief they hold right now about the problem or about products like this one. 1-2 sentences.
-
-9. **Objection** — the single strongest reason this buyer would scroll past this ad. 1 sentence.
-
-10. **Emotional State** — the dominant feeling in the moment the ad catches them. Specific emotion words — "weary resignation", "quiet panic", "self-blame", not "bad" or "sad". 1 sentence.
-
-11. **Scene to Center the Ad On** — the concrete physical scene the ad visually and narratively anchors to. One sentence describing a moment in time and space (location + what the buyer is doing).
-
-12. **Desired Belief Shift** — the single belief this angle needs to move the buyer toward. Complete the sentence: "After this ad, they should believe that ___." 1 sentence.
-
-13. **Tone** — 3-6 adjectives describing the voice. Example: "Calm, specific, skeptical-friendly, free of hype."
-
-14. **Avoid** — 2-5 specific things the copy or visuals must not do. Example: "No young models. No generic insomnia language. No 'secret trick' phrasing."
-
-=============================
-RULES FOR THE ANGLE SET
-=============================
-- 8 angles total. No fewer.
-- Every angle must use a different **Frame** if possible. If you repeat a Frame, the Core Buyer or Symptom Pattern must be meaningfully different.
-- No two angles may share the same Symptom Pattern or the same Scene.
-- At least one angle each at priority "highest" and "high". Up to two "test".
-- Write in plain, specific English. No marketing-ese. No hype. No em-dashes as hedges.
-- If a field would be empty, put a concrete guess — never "N/A" or "(none)".
-
-=============================
-OUTPUT FORMAT — COPY EXACTLY
-=============================
-Return the full document as a single markdown code block. For each angle, use this exact structure. Separate angles with a line containing only three dashes on its own line.
-
-\`\`\`markdown
-## <Angle Name>
-
-- **Status**: active
-- **Priority**: <highest|high|medium|test>
-- **Frame**: <symptom-first|scam|objection-first|identity-first|MAHA|news-first|consequence-first>
-
-### Core Buyer
-<text>
-
-### Symptom Pattern
-<text>
-
-### Failed Solutions
-<text>
-
-### Current Belief
-<text>
-
-### Objection
-<text>
-
-### Emotional State
-<text>
-
-### Scene to Center the Ad On
-<text>
-
-### Desired Belief Shift
-<text>
-
-### Tone
-<text>
-
-### Avoid
-<text>
-
----
-
-## <Next Angle Name>
-
-... (same 10 sections, then another \`---\`)
-\`\`\`
-
-Produce the document now. No preamble, no commentary — just the markdown.`;
-}
-
 function buildServerQueueItem(active, existing = null) {
   return {
     id: existing?.id || active?.runId || active?.id || crypto.randomUUID(),
@@ -1077,8 +946,41 @@ function buildServerQueueItem(active, existing = null) {
   };
 }
 
+function buildDurableQueueItem(run, existing = null) {
+  const runId = getDurableRunId(run);
+  const isQueued = run?.status === 'queued';
+  const isCancelled = run?.status === 'cancelled' || run?.terminal_status === 'cancelled';
+  return {
+    id: existing?.id || runId || crypto.randomUUID(),
+    status: isCancelled
+      ? 'error'
+      : isQueued
+        ? 'queued'
+        : isDurableRunSuccess(run)
+          ? 'complete'
+          : isDurableRunFailure(run)
+            ? 'error'
+            : 'running',
+    progress: isQueued ? 0 : (existing?.progress || (run?.terminal_status === 'waiting_on_gemini' ? 22 : 0)),
+    phase: isQueued
+      ? `Queued${run?.queue_position ? ` at position ${run.queue_position}` : ''}.`
+      : (run?.decisions || existing?.phase || 'Still processing in background...'),
+    startTime: existing?.startTime || run?.started_at || run?.run_at || run?.created_at || Date.now(),
+    result: run || existing?.result || null,
+    angleId: existing?.angleId || run?.queued_angle_id || null,
+    adsPerAdSetTarget: run?.required_passes || existing?.adsPerAdSetTarget || 5,
+    templateTag: run?.template_tag || existing?.templateTag || '',
+    sseConnected: false,
+    serverRunId: runId,
+    serverQueued: isQueued,
+    queuePosition: run?.queue_position || null,
+  };
+}
+
 const FINISHED_TEST_RUN_TTL_MS = 5 * 60 * 1000;
 const ACTIVE_TEST_RUN_TTL_MS = 2 * 60 * 60 * 1000;
+const TEST_RUN_FINAL_RECONCILE_ATTEMPTS = 3;
+const TEST_RUN_START_MATCH_WINDOW_MS = 60 * 1000;
 const LEGACY_AUTO_POST_LOG_IMPORT_TEXT = "does not provide an export named 'createAutoPostLog'";
 
 function getQueueRunId(item) {
@@ -1095,7 +997,11 @@ function getQueueErrorText(item) {
 }
 
 function isTerminalQueueItem(item) {
-  return item?.status === 'complete' || item?.status === 'error';
+  return item?.status === 'complete' || item?.status === 'completed' || item?.status === 'error';
+}
+
+function isQueueRunComplete(item) {
+  return item?.status === 'complete' || item?.status === 'completed' || isDurableRunSuccess(item?.result);
 }
 
 function isLegacyAutoPostLogQueueItem(item) {
@@ -1129,13 +1035,47 @@ function getDurableRunId(run) {
 }
 
 function isDurableRunActive(run) {
-  return run?.status === 'running' || run?.terminal_status === 'waiting_on_gemini';
+  return ['running', 'scoring', 'repairing', 'processing'].includes(run?.status) || run?.terminal_status === 'waiting_on_gemini';
+}
+
+function isDurableRunSuccess(run) {
+  return run?.status === 'completed' && run?.terminal_status === 'deployed';
+}
+
+function isDurableRunFailure(run) {
+  return run?.status === 'failed' || run?.status === 'cancelled' || String(run?.terminal_status || '').includes('failed') || run?.terminal_status === 'cancelled';
+}
+
+function getDurableRunTimeMs(run) {
+  const value = run?.run_at || run?.created_at || run?.started_at;
+  if (typeof value === 'number') return value;
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function findDurableRunForQueueItem(runs, queueItem) {
+  const safeRuns = ensureArray(runs, 'AgentMonitor.director.findDurableRunForQueueItem');
+  const queueRunId = getQueueRunId(queueItem);
+  if (queueRunId) {
+    const matchedById = safeRuns.find(run => getDurableRunId(run) === queueRunId);
+    if (matchedById) return matchedById;
+  }
+
+  const startedAt = Number(queueItem?.startTime || 0);
+  if (!startedAt) return null;
+
+  return safeRuns.find((run) => {
+    if (run?.run_type && run.run_type !== 'test') return false;
+    const runTime = getDurableRunTimeMs(run);
+    return runTime > 0 && Math.abs(runTime - startedAt) <= TEST_RUN_START_MATCH_WINDOW_MS;
+  }) || null;
 }
 
 const VALID_AGENT_TABS = ['director', 'filter'];
 
 export default function AgentMonitor({ projectId: externalProjectId, project: externalProject, onProjectRefresh }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useContext(AuthContext);
   const [filterData, setFilterData] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
   const embedded = !!externalProjectId;
@@ -1303,6 +1243,7 @@ export default function AgentMonitor({ projectId: externalProjectId, project: ex
             onRefresh={loadStatus}
             externalProjectId={externalProjectId}
             externalProject={externalProject}
+            userRole={user?.role}
             onProjectRefresh={onProjectRefresh}
           />
         )}
@@ -1409,7 +1350,231 @@ function PipelineOverview({ data, filterData }) {
 // =============================================
 // Creative Director Tab
 // =============================================
-function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectRefresh }) {
+function DirectorSetupTipsPanel({ projectId, foundationalDocsComplete, angleCount, customAngleCount, directorEnabled, userRole }) {
+  const storageKey = `directorSetupTipsCollapsed:${projectId}`;
+  const canView = userRole === 'admin' || userRole === 'manager';
+  const state = !foundationalDocsComplete
+    ? 'docs'
+    : directorEnabled
+      ? 'enabled'
+      : customAngleCount === 0
+        ? 'angles'
+        : 'disabled';
+  const defaultCollapsed = state === 'enabled';
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
+  useEffect(() => {
+    if (!projectId) return;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setCollapsed(saved === null ? defaultCollapsed : saved === 'true');
+    } catch {
+      setCollapsed(defaultCollapsed);
+    }
+  }, [defaultCollapsed, projectId, storageKey]);
+
+  const setManualCollapsed = (next) => {
+    setCollapsed(next);
+    try {
+      localStorage.setItem(storageKey, next ? 'true' : 'false');
+    } catch { /* ignore */ }
+  };
+
+  if (!canView) return null;
+
+  const content = {
+    docs: {
+      summary: 'Complete foundational docs first.',
+      title: '⚠️ Complete your foundational docs first',
+      paragraphs: [
+        "The Creative Director needs your foundational research to generate good angles. Head to the Foundational Docs tab and complete the doc generation. Once those are done, you'll automatically get a default angle here, and you can generate more.",
+      ],
+    },
+    angles: {
+      summary: 'Direct Offer ready. No custom angles yet.',
+      title: '⚠️ Your project has Direct Offer. Add custom angles for richer testing.',
+      paragraphs: [
+        'Your project\'s foundational docs are complete and a default Direct Offer angle is ready — that\'s the baseline "just sell the offer" positioning. You CAN run the Director on just Direct Offer, but adding custom angles lets you test multiple positioning narratives, which makes the system meaningfully more useful.',
+        'Step 1: Click Copy LLM Prompt. Paste into ChatGPT or Claude. The LLM will walk you through generating 10 angle teasers, picking the ones you like, building a shortlist across batches, and expanding the final shortlist into full briefs.',
+        "Step 2: Paste the LLM's markdown into the Import dialog. Each angle in the markdown gets added to your library.",
+        'Step 3: Enable the Creative Director (toggle below) to start scheduled runs.',
+      ],
+    },
+    disabled: {
+      summary: `${angleCount} active angle${angleCount === 1 ? '' : 's'}. Director is disabled.`,
+      title: `✓ You have ${angleCount} angle${angleCount === 1 ? '' : 's'}. Enable the Director to start runs.`,
+      paragraphs: [
+        'Toggle Enable Creative Director below to start scheduled runs at 7am / 7pm / 1am ICT. Recommended: click Run Test on one angle first to verify the system works end-to-end before relying on schedule.',
+        'Want more angles? Click Copy LLM Prompt anytime to generate more candidates with ChatGPT or Claude, then Import the markdown back here. Any angle in your library is editable — click on it to customize.',
+      ],
+    },
+    enabled: {
+      summary: 'Director is enabled. Scheduled runs are active.',
+      title: '✓ Director is enabled. Scheduled runs at 7am / 7pm / 1am ICT.',
+      paragraphs: [
+        'Click Run Test on any angle to trigger an immediate batch — recommended after any angle changes. View results in the Staging tab. Need more angles? Use the Copy LLM Prompt workflow anytime.',
+      ],
+    },
+  }[state];
+
+  return (
+    <section className={`mb-4 rounded-xl border px-3 py-3 ${foundationalDocsComplete ? 'bg-ed-accent/5 border-ed-accent/10' : 'bg-ed-rust/5 border-ed-rust/10'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[12px] font-serif font-[420] text-ed-ink">Director Setup & Tips</h3>
+            {collapsed && (
+              <button
+                type="button"
+                onClick={() => setManualCollapsed(false)}
+                className="text-[10px] font-medium text-ed-accent hover:text-ed-accent/80"
+              >
+                Need help?
+              </button>
+            )}
+          </div>
+          {collapsed && <p className="text-[11px] text-ed-ink2 mt-1">{content.summary}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={() => setManualCollapsed(!collapsed)}
+          className="ed-ghost text-[10px] px-2 py-1 shrink-0"
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? 'Show' : 'Hide'}
+        </button>
+      </div>
+
+      {!collapsed && (
+        <div className="mt-3 space-y-2">
+          <p className={`text-[12px] font-medium ${foundationalDocsComplete ? 'text-ed-ink' : 'text-ed-rust'}`}>{content.title}</p>
+          {content.paragraphs.map((paragraph) => (
+            <p key={paragraph} className="text-[11px] text-ed-ink2 leading-relaxed">{paragraph}</p>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DirectorSettingsAnglesCallout({ customAngleCount, countsReady, userRole, onGoToAngles }) {
+  const canView = userRole === 'admin' || userRole === 'manager';
+  if (!canView || !countsReady || customAngleCount > 0) return null;
+
+  return (
+    <div className="rounded-xl bg-ed-accent/5 border border-ed-accent/10 px-3 py-3">
+      <p className="text-[12px] font-medium text-ed-ink">⚠️ Add custom angles before configuring Director settings</p>
+      <p className="text-[11px] text-ed-ink2 mt-1 leading-relaxed">
+        Your project's Director can run on just the Direct Offer baseline, but adding custom angles makes test variety meaningful. Head to the Angles tab to generate some — you'll see step-by-step instructions there.
+      </p>
+      <button
+        type="button"
+        onClick={onGoToAngles}
+        className="mt-3 px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
+      >
+        Go to Angles
+      </button>
+    </div>
+  );
+}
+
+function ImportDedupDialog({ open, result, importing, onImportNewOnly, onImportWithArchived, onCancel }) {
+  if (!open || !result) return null;
+
+  const newCount = result.newAngles?.length || 0;
+  const archivedMatches = ensureArray(result.archivedMatches, 'AgentMonitor.importDedup.archivedMatches');
+  const activeMatches = ensureArray(result.activeMatches, 'AgentMonitor.importDedup.activeMatches');
+  const archivedNames = archivedMatches.map(match => match.existingAngle?.name || match.angle?.name).filter(Boolean);
+  const activeNames = activeMatches.map(match => match.existingAngle?.name || match.angle?.name).filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 fade-in">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => !importing && onCancel?.()} />
+      <div className="relative bg-ed-surface border border-ed-line rounded-xl shadow-card w-full max-w-lg p-6">
+        <h3 className="font-serif text-[16px] font-[420] text-ed-ink tracking-tight">Some angles already exist in your library</h3>
+        <div className="text-[13px] text-ed-ink2 mt-3 space-y-2">
+          <p>{newCount} new angle{newCount !== 1 ? 's' : ''} will be added.</p>
+          {archivedNames.length > 0 && (
+            <p>{archivedNames.length} angle{archivedNames.length !== 1 ? 's' : ''} match archived entries: {archivedNames.join(', ')}</p>
+          )}
+          {activeNames.length > 0 && (
+            <p>{activeNames.length} angle{activeNames.length !== 1 ? 's' : ''} match active entries: {activeNames.join(', ')}</p>
+          )}
+          {activeNames.length > 0 && (
+            <p className="text-[12px] text-ed-ink3">
+              {activeNames.length} angle{activeNames.length !== 1 ? 's' : ''} already exist as active in your library — they will be skipped in any of the actions above. To replace their content, archive them first and re-import.
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={importing}
+            className="ed-ghost text-[13px] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          {archivedNames.length > 0 && (
+            <button
+              type="button"
+              onClick={onImportWithArchived}
+              disabled={importing}
+              className="px-4 py-2 rounded-[7px] text-[13px] font-medium bg-ed-accent hover:bg-ed-accent/90 text-white transition-colors disabled:opacity-50"
+            >
+              {importing ? 'Working...' : `Import new + reactivate archived (${newCount + archivedNames.length})`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onImportNewOnly}
+            disabled={importing}
+            className="px-4 py-2 rounded-[7px] text-[13px] font-medium bg-ed-accent hover:bg-ed-accent/90 text-white transition-colors disabled:opacity-50"
+          >
+            {importing ? 'Working...' : `Import new only (${newCount})`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DefaultAngleArchiveDialog({ open, angle, busy, onConfirm, onCancel }) {
+  if (!open || !angle) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 fade-in">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => !busy && onCancel?.()} />
+      <div className="relative bg-ed-surface border border-ed-line rounded-xl shadow-card w-full max-w-md p-6">
+        <h3 className="font-serif text-[16px] font-[420] text-ed-ink tracking-tight">Archive your project's default angle?</h3>
+        <div className="text-[13px] text-ed-ink2 mt-3 space-y-3">
+          <p>"{angle.name}" is your project's default angle (auto-seeded after foundational docs complete). It serves as the baseline "just sell the offer" positioning. Archiving it means this project will only run on custom angles you've created.</p>
+          <p>If you archive it, you can always restore it from the archived list.</p>
+        </div>
+        <div className="flex items-center justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="ed-ghost text-[13px] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="px-4 py-2 rounded-[7px] text-[13px] font-medium bg-ed-rust hover:bg-ed-rust/90 text-white transition-colors disabled:opacity-50"
+          >
+            {busy ? 'Archiving...' : 'Archive default angle'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DirectorTab({ onRefresh, externalProjectId, externalProject, userRole, onProjectRefresh }) {
   const toast = useToast();
   const embedded = !!externalProjectId;
   const [projects, setProjects] = useState([]);
@@ -1419,6 +1584,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [angleOptions, setAngleOptions] = useState([]);
   const [runs, setRuns] = useState([]);
   const [playbooks, setPlaybooks] = useState([]);
+  const [foundationalDocs, setFoundationalDocs] = useState([]);
   const [subTab, setSubTab] = useState('settings');
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [selectedAngleIds, setSelectedAngleIds] = useState([]);
@@ -1435,6 +1601,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [runsLoadedFor, setRunsLoadedFor] = useState('');
   const [playbooksLoadedFor, setPlaybooksLoadedFor] = useState('');
   const [campaignsLoadedFor, setCampaignsLoadedFor] = useState('');
+  const [foundationalDocsLoadedFor, setFoundationalDocsLoadedFor] = useState('');
   const [runningAction, setRunningAction] = useState(null);
   const [cancelingRunId, setCancelingRunId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -1451,16 +1618,17 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [testAdSetTargetDraft, setTestAdSetTargetDraft] = useState('');
   const [testTemplateTag, setTestTemplateTag] = useState('');
 
-  // Test run queue — persisted per project so restored runs cannot bleed across projects.
-  const queueStorageKey = selectedProject ? `dacia_testRunQueue:${selectedProject}` : 'dacia_testRunQueue';
+  // Test run queue — now server-backed. Legacy browser-local queues are cleared
+  // on project load so stale pre-deploy items cannot render or auto-start.
   const [testRunQueue, setTestRunQueue] = useState(() => {
     return [];
   });
   const [queueLoadedFor, setQueueLoadedFor] = useState('');
   const safeTestRunQueue = ensureArray(testRunQueue, 'AgentMonitor.director.testRunQueue');
   const activeRun = safeTestRunQueue.find(r => r.status === 'running');
+  const queuedRuns = safeTestRunQueue.filter(r => r.status === 'queued' || r.status === 'queueing');
   const queuedCount = safeTestRunQueue.filter(r => r.status === 'queued').length;
-  const finishedRuns = safeTestRunQueue.filter(r => r.status === 'complete' || r.status === 'error');
+  const finishedRuns = safeTestRunQueue.filter(r => isTerminalQueueItem(r));
   const activeRunRecord = activeRun?.result || null;
   const activeRunRounds = getRunRounds(activeRunRecord);
   const activeRunBatches = getRunBatches(activeRunRecord);
@@ -1475,14 +1643,9 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     if (!selectedProject) return;
     setQueueLoadedFor('');
     try {
-      const saved = localStorage.getItem(`dacia_testRunQueue:${selectedProject}`);
-      if (!saved) {
-        setTestRunQueue([]);
-        setQueueLoadedFor(selectedProject);
-        return;
-      }
-      const parsed = ensureArray(JSON.parse(saved), 'AgentMonitor.director.savedRunQueue');
-      setTestRunQueue(cleanupSavedTestRunQueue(parsed));
+      localStorage.removeItem(`dacia_testRunQueue:${selectedProject}`);
+      localStorage.removeItem('dacia_testRunQueue');
+      setTestRunQueue([]);
       setQueueLoadedFor(selectedProject);
     } catch {
       setTestRunQueue([]);
@@ -1490,12 +1653,39 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     }
   }, [selectedProject]);
 
-  // Sync queue to localStorage on every change
   useEffect(() => {
-    if (!selectedProject) return;
-    if (queueLoadedFor !== selectedProject) return;
-    localStorage.setItem(queueStorageKey, JSON.stringify(safeTestRunQueue));
-  }, [queueLoadedFor, queueStorageKey, safeTestRunQueue, selectedProject]);
+    if (!selectedProject || queueLoadedFor !== selectedProject) return;
+    let cancelled = false;
+
+    const loadServerQueue = async () => {
+      try {
+        const queueRes = await api.getConductorTestQueue(selectedProject, 50);
+        if (cancelled || selectedProjectRef.current !== selectedProject) return;
+        const durableRuns = ensureArray(queueRes?.runs ?? queueRes, 'AgentMonitor.director.serverTestRunQueue');
+        setTestRunQueue(prev => {
+          const safePrev = ensureArray(prev, 'AgentMonitor.director.mergeServerTestRunQueue');
+          const byRunId = new Map(safePrev.map(item => [getQueueRunId(item), item]).filter(([id]) => !!id));
+          const serverItems = durableRuns.map(run => buildDurableQueueItem(run, byRunId.get(getDurableRunId(run))));
+          const serverIds = new Set(serverItems.map(getQueueRunId).filter(Boolean));
+          const localItems = safePrev.filter(item => {
+            const runId = getQueueRunId(item);
+            if (runId && serverIds.has(runId)) return false;
+            return !item.serverQueued && (item.status === 'queued' || item.status === 'running' || isTerminalQueueItem(item));
+          });
+          return cleanupSavedTestRunQueue([...serverItems, ...localItems]);
+        });
+      } catch {
+        // Existing progress polling still reconciles active runs; keep queue polling quiet.
+      }
+    };
+
+    loadServerQueue();
+    const interval = setInterval(loadServerQueue, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [queueLoadedFor, selectedProject]);
 
   // Auto-clear finished results after 5 minutes
   useEffect(() => {
@@ -1516,7 +1706,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [showImport, setShowImport] = useState(false);
   const [importDragOver, setImportDragOver] = useState(false);
   const [importResult, setImportResult] = useState(null); // { newAngles: [], skipped: [] }
+  const [importDedupPrompt, setImportDedupPrompt] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [defaultArchivePrompt, setDefaultArchivePrompt] = useState(null);
+  const [defaultArchiveBusy, setDefaultArchiveBusy] = useState(false);
   const importFileRef = useRef(null);
   const debounceRef = useRef(null);
   const pendingConfigRef = useRef({});
@@ -1590,6 +1783,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     setAngleOptions([]);
     setRuns([]);
     setPlaybooks([]);
+    setFoundationalDocs([]);
     setCampaigns([]);
     setTemplates([]);
     setAnglesLoadedFor('');
@@ -1598,14 +1792,20 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     setPlaybooksLoadedFor('');
     setCampaignsLoadedFor('');
     setTemplatesLoadedFor('');
+    setFoundationalDocsLoadedFor('');
     setAdsPerAdSetDraft(null);
     (async () => {
       try {
-        const [cfgRes] = await Promise.allSettled([
+        const [cfgRes, docsRes] = await Promise.allSettled([
           api.getConductorConfig(selectedProject),
+          api.getDocs(selectedProject),
         ]);
         if (cancelled) return;
         if (cfgRes.status === 'fulfilled') setConfig(cfgRes.value?.config || null);
+        if (docsRes.status === 'fulfilled') {
+          setFoundationalDocs(ensureArray(docsRes.value?.docs, 'AgentMonitor.director.foundationalDocs'));
+          setFoundationalDocsLoadedFor(selectedProject);
+        }
       } catch { /* ignore */ }
       finally {
         if (!cancelled) setBaseLoading(false);
@@ -1826,6 +2026,60 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       sseConnected: false,
       serverRunId: null,
     };
+
+    if (activeRun || queuedCount > 0) {
+      setTestRunQueue(prev => [...prev, { ...queueItem, status: 'queueing', phase: 'Adding to queue...' }]);
+      const body = {
+        ...(queueItem.angleId ? { angle_id: queueItem.angleId } : {}),
+        ads_per_ad_set: queueItem.adsPerAdSetTarget || 5,
+        ...(queueItem.templateTag ? { template_tag: queueItem.templateTag } : {}),
+      };
+      const { done } = api.triggerConductorTestRun(selectedProject, body, (event) => {
+        if (event.type === 'progress') {
+          updateQueueItem(queueItem.id, {
+            status: 'running',
+            sseConnected: true,
+            phase: event.message || 'Starting test run...',
+            progress: typeof event.progressValue === 'number' ? event.progressValue : 0,
+          });
+        } else if (event.type === 'queued') {
+          updateQueueItem(queueItem.id, {
+            status: 'queued',
+            phase: event.message || `Queued at position ${event.queue_position || queuedCount + 1}.`,
+            serverRunId: event.runId || null,
+            serverQueued: true,
+            queuePosition: event.queue_position || null,
+            result: event,
+          });
+        } else if (event.type === 'background') {
+          updateQueueItem(queueItem.id, {
+            status: 'running',
+            sseConnected: false,
+            progress: 22,
+            phase: event.phase || event.background_message || 'Still processing in background...',
+            result: event,
+            serverRunId: event.runId || null,
+          });
+        } else if (event.type === 'complete') {
+          updateQueueItem(queueItem.id, {
+            status: 'complete',
+            progress: 100,
+            phase: 'Complete',
+            result: event,
+            serverRunId: event.runId || null,
+          });
+        } else if (event.type === 'error') {
+          updateQueueItem(queueItem.id, { status: 'error', progress: 0, phase: event.message || 'Failed to queue test run', result: event });
+        }
+      });
+      done.catch((err) => {
+        updateQueueItem(queueItem.id, { status: 'error', progress: 0, phase: err.message || 'Failed to queue test run' });
+        toast.error(err.message || 'Failed to queue test run');
+      });
+      setSubTab('history');
+      return;
+    }
+
     setTestRunQueue(prev => [...prev, queueItem]);
     setSubTab('history');
   };
@@ -1869,7 +2123,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       phase: 'Cancel requested. Asking Gemini/background processing to stop...',
     });
     try {
-      const res = await api.cancelTestRun(selectedProject);
+      const res = await api.cancelTestRun(selectedProject, getQueueRunId(activeRun));
       if (!res?.cancelled) {
         updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: 'No active run found to cancel.' });
         setRunningAction(null);
@@ -1891,14 +2145,35 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   }, [activeRun, cancelingRunId, selectedProject, updateQueueItem]);
 
   // Remove a queued (not yet running) test run
-  const handleRemoveQueued = useCallback((runId) => {
+  const handleRemoveQueued = useCallback(async (runId) => {
+    const queued = safeTestRunQueue.find(r => r.id === runId);
+    const serverRunId = getQueueRunId(queued);
+    if (serverRunId) {
+      try {
+        await api.cancelTestRun(selectedProject, serverRunId);
+      } catch (err) {
+        toast.error(err.message || 'Could not cancel queued run');
+        return;
+      }
+    }
     setTestRunQueue(prev => prev.filter(r => r.id !== runId));
-  }, []);
+  }, [safeTestRunQueue, selectedProject, toast]);
 
   // Clear all queued runs
-  const handleClearQueue = useCallback(() => {
-    setTestRunQueue(prev => prev.filter(r => r.status !== 'queued'));
-  }, []);
+  const handleClearQueue = useCallback(async () => {
+    const queued = safeTestRunQueue.filter(r => r.status === 'queued' || r.status === 'queueing');
+    for (const run of queued) {
+      const serverRunId = getQueueRunId(run);
+      if (!serverRunId) continue;
+      try {
+        await api.cancelTestRun(selectedProject, serverRunId);
+      } catch (err) {
+        toast.error(err.message || 'Could not clear queued run');
+        return;
+      }
+    }
+    setTestRunQueue(prev => prev.filter(r => r.status !== 'queued' && r.status !== 'queueing'));
+  }, [safeTestRunQueue, selectedProject, toast]);
 
   const loadLPDetailsForBatch = useCallback(async (batchId) => {
     if (!selectedProject || !batchId) return;
@@ -1931,7 +2206,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   useEffect(() => {
     if (!selectedProject || queueLoadedFor !== selectedProject) return;
     const running = testRunQueue.find(r => r.status === 'running');
-    const nextQueued = testRunQueue.find(r => r.status === 'queued');
+    const nextQueued = testRunQueue.find(r => r.status === 'queued' && !r.serverQueued && !getQueueRunId(r));
 
     // If there's a running item with a live SSE connection, nothing to do
     if (running && sseActiveRef.current) return;
@@ -2009,6 +2284,20 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           phase: event.phase || event.background_message || 'Still processing in background...',
           result: event,
           serverRunId: event.runId || null,
+          finalReconcileAttempts: 0,
+        });
+      } else if (event.type === 'queued') {
+        sseActiveRef.current = false;
+        abortRef.current = null;
+        updateQueueItem(runId, {
+          status: 'queued',
+          sseConnected: false,
+          serverQueued: true,
+          progress: 0,
+          phase: event.message || `Queued at position ${event.queue_position || 1}.`,
+          result: event,
+          serverRunId: event.runId || null,
+          queuePosition: event.queue_position || null,
         });
       } else if (event.type === 'error') {
         const cancelled = event.terminal_status === 'cancelled' || event.message === 'Cancelled by user';
@@ -2056,6 +2345,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               startTime: running.startTime || res.active.startTime,
               result: res.active.result || running.result || null,
               serverRunId: res.active.runId || res.active.id || running.serverRunId || null,
+              finalReconcileAttempts: 0,
             });
           } else {
             setTestRunQueue(prev => {
@@ -2075,16 +2365,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           return;
         }
 
-        // No active tracker: check the durable run record before deciding the run is done.
-        const runRes = await api.getConductorRuns(selectedProject, 5);
+        // No active tracker: reconcile against durable conductor_runs before deciding the run is done.
+        const runRes = await api.getConductorRuns(selectedProject, 20);
         const safeRuns = ensureArray(runRes?.runs, 'AgentMonitor.director.runs');
         setRuns(safeRuns);
         setRunsLoadedFor(selectedProject);
-        const runningServerRunId = running.serverRunId || null;
-        const matchedRun = runningServerRunId
-          ? safeRuns.find(run => getDurableRunId(run) === runningServerRunId)
-          : null;
-        const activeDurableRun = safeRuns.find(run => isDurableRunActive(run));
+        const matchedRun = findDurableRunForQueueItem(safeRuns, running);
+        const activeDurableRun = getQueueRunId(running) ? null : safeRuns.find(run => isDurableRunActive(run));
         const durableRun = matchedRun || activeDurableRun || null;
 
         if (durableRun && isDurableRunActive(durableRun)) {
@@ -2099,23 +2386,51 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         }
 
         if (!durableRun) {
+          const attempts = Number(running.finalReconcileAttempts || 0) + 1;
+          if (attempts <= TEST_RUN_FINAL_RECONCILE_ATTEMPTS) {
+            updateQueueItem(running.id, {
+              status: 'running',
+              sseConnected: false,
+              progress: Math.max(running.progress || 0, 22),
+              phase: 'Checking final run status...',
+              finalReconcileAttempts: attempts,
+              serverRunId: running.serverRunId || null,
+            });
+            return;
+          }
+
           updateQueueItem(running.id, {
             status: 'error',
             progress: 0,
-            phase: 'No active test run was found for this progress item. Refreshing run history...',
+            phase: 'No durable test run record was found after background handoff. Refreshing run history...',
+            finalReconcileAttempts: attempts,
             serverRunId: running.serverRunId || null,
           });
           finishRun(running.id, true);
           return;
         }
 
-        const succeeded = durableRun?.status === 'completed';
+        const succeeded = isDurableRunSuccess(durableRun);
+        const failed = isDurableRunFailure(durableRun);
+        if (!succeeded && !failed) {
+          updateQueueItem(running.id, {
+            status: 'running',
+            progress: Math.max(running.progress || 0, durableRun?.terminal_status === 'waiting_on_gemini' ? 22 : running.progress || 0),
+            phase: durableRun?.decisions || 'Checking final run status...',
+            result: durableRun || null,
+            serverRunId: getDurableRunId(durableRun) || running.serverRunId || null,
+            finalReconcileAttempts: 0,
+          });
+          return;
+        }
+
         updateQueueItem(running.id, {
           status: succeeded ? 'complete' : 'error',
           progress: succeeded ? 100 : 0,
           phase: succeeded ? (durableRun?.decisions || 'Complete') : (durableRun?.failure_reason || durableRun?.error || 'Failed'),
           result: durableRun || null,
           serverRunId: getDurableRunId(durableRun) || running.serverRunId || null,
+          finalReconcileAttempts: 0,
         });
         finishRun(running.id, !succeeded);
         return; // Stop polling
@@ -2171,7 +2486,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     } catch { /* ignore */ }
   };
 
-  const handleAngleStatusChange = async (angleId, newStatus) => {
+  const applyAngleStatusChange = async (angleId, newStatus) => {
     try {
       await api.updateConductorAngle(selectedProject, angleId, { status: newStatus });
       setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, status: newStatus } : a));
@@ -2187,6 +2502,15 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     } catch { /* ignore */ }
   };
 
+  const handleAngleStatusChange = async (angleId, newStatus) => {
+    const angle = ensureArray(angles, 'AgentMonitor.director.anglesState').find(a => a.externalId === angleId);
+    if (newStatus === 'archived' && angle?.is_system_default === true) {
+      setDefaultArchivePrompt({ angle, ids: [angleId] });
+      return;
+    }
+    await applyAngleStatusChange(angleId, newStatus);
+  };
+
   const handleUpdateAngle = async (angleId, updates) => {
     await api.updateConductorAngle(selectedProject, angleId, updates);
     setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
@@ -2199,8 +2523,8 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       : [...prev, angleId]);
   }, []);
 
-  const handleArchiveSelectedAngles = useCallback(async () => {
-    const ids = selectedAngleIds.filter(Boolean);
+  const archiveAngleIds = useCallback(async (angleIds) => {
+    const ids = ensureArray(angleIds, 'AgentMonitor.director.archiveAngleIds').filter(Boolean);
     if (!ids.length) return;
     try {
       await Promise.all(ids.map(id => api.updateConductorAngle(selectedProject, id, { status: 'archived' })));
@@ -2208,12 +2532,35 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         ids.includes(angle.externalId) ? { ...angle, status: 'archived' } : angle
       )));
       setAngleOptions(prev => ensureArray(prev, 'AgentMonitor.director.angleOptionsState').filter(angle => !ids.includes(angle.externalId)));
-      setSelectedAngleIds([]);
+      setSelectedAngleIds(prev => prev.filter(id => !ids.includes(id)));
       toast.success(`${ids.length} angle${ids.length !== 1 ? 's' : ''} archived`);
     } catch (err) {
       toast.error(err?.message || 'Failed to archive selected angles');
     }
-  }, [selectedAngleIds, selectedProject, toast]);
+  }, [selectedProject, toast]);
+
+  const handleArchiveSelectedAngles = useCallback(async () => {
+    const ids = selectedAngleIds.filter(Boolean);
+    if (!ids.length) return;
+    const defaultAngle = ensureArray(angles, 'AgentMonitor.director.anglesState')
+      .find(angle => ids.includes(angle.externalId) && angle.is_system_default === true);
+    if (defaultAngle) {
+      setDefaultArchivePrompt({ angle: defaultAngle, ids });
+      return;
+    }
+    await archiveAngleIds(ids);
+  }, [archiveAngleIds, angles, selectedAngleIds]);
+
+  const handleConfirmDefaultArchive = useCallback(async () => {
+    if (!defaultArchivePrompt?.ids?.length) return;
+    setDefaultArchiveBusy(true);
+    try {
+      await archiveAngleIds(defaultArchivePrompt.ids);
+      setDefaultArchivePrompt(null);
+    } finally {
+      setDefaultArchiveBusy(false);
+    }
+  }, [archiveAngleIds, defaultArchivePrompt]);
 
   // --- Copy LLM prompt for generating a new angle list ---
   // Builds a detailed prompt, embedding the project's brand/product context, that the user
@@ -2229,8 +2576,17 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       const productName = project?.name || '';
       const niche = project?.niche || '(not specified)';
       const productDesc = project?.product_description || '(not specified)';
+      const docsData = await api.getDocs(selectedProject);
+      const foundationalDocs = ensureArray(docsData?.docs, 'AgentMonitor.copyAnglePrompt.docs');
 
-      const promptText = buildAnglePromptText({ brand, productName, niche, productDesc });
+      const promptText = buildAnglePromptText({
+        brand,
+        productName,
+        niche,
+        productDesc,
+        salesPageContent: project?.sales_page_content || '',
+        foundationalDocs,
+      });
       await navigator.clipboard.writeText(promptText);
       toast.success('Prompt copied. Paste it into ChatGPT/Claude, then save the reply as a .md file and import it here.');
     } catch (err) {
@@ -2293,6 +2649,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   };
 
   const parseAnglesMarkdown = (text) => {
+    text = String(text || '').trim().replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i, '$1').trim();
     // Split by --- separators (new format) or ## headings (old format)
     const hasStructuredSections = text.includes('### Core Buyer') || text.includes('### Symptom Pattern');
 
@@ -2387,19 +2744,50 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     reader.onload = (e) => {
       const text = e.target.result;
       const parsed = parseAnglesMarkdown(text);
-      const existingNames = new Set(ensureArray(angles, 'AgentMonitor.director.anglesState').map(a => a.name.toLowerCase()));
-      const newAngles = parsed.filter(a => !existingNames.has(a.name.toLowerCase()));
-      const skipped = parsed.filter(a => existingNames.has(a.name.toLowerCase()));
-      setImportResult({ newAngles, skipped });
+      const existingByName = new Map();
+      ensureArray(angles, 'AgentMonitor.director.anglesState').forEach((angle) => {
+        const key = normalizeAngleNameForMatch(angle.name);
+        if (!key) return;
+        if (!existingByName.has(key)) existingByName.set(key, []);
+        existingByName.get(key).push(angle);
+      });
+
+      const newAngles = [];
+      const archivedMatches = [];
+      const activeMatches = [];
+
+      parsed.forEach((angle) => {
+        const matches = existingByName.get(normalizeAngleNameForMatch(angle.name)) || [];
+        const activeMatch = matches.find(existing => existing.status === 'active' || existing.status === 'testing');
+        const archivedMatch = matches.find(existing => existing.status === 'archived' || existing.status === 'retired');
+        if (activeMatch) {
+          activeMatches.push({ angle, existingAngle: activeMatch });
+        } else if (archivedMatch) {
+          archivedMatches.push({ angle, existingAngle: archivedMatch });
+        } else {
+          newAngles.push(angle);
+        }
+      });
+
+      setImportResult({
+        newAngles,
+        archivedMatches,
+        activeMatches,
+        skipped: [...archivedMatches.map(match => match.angle), ...activeMatches.map(match => match.angle)],
+      });
     };
     reader.readAsText(file);
   };
 
-  const handleConfirmImport = async () => {
-    if (!importResult?.newAngles?.length) return;
+  const performImport = async ({ newAngles = [], archivedMatches = [] } = {}) => {
     setImporting(true);
     try {
-      for (const angle of importResult.newAngles) {
+      for (const match of archivedMatches) {
+        if (match?.existingAngle?.externalId) {
+          await api.updateConductorAngle(selectedProject, match.existingAngle.externalId, { status: 'active' });
+        }
+      }
+      for (const angle of newAngles) {
         await api.createConductorAngle(selectedProject, {
           name: angle.name,
           description: angle.description,
@@ -2425,9 +2813,25 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       setAnglesLoadedFor(selectedProject);
       loadAngleOptions(selectedProject, { force: true });
       setImportResult(null);
+      setImportDedupPrompt(null);
       setShowImport(false);
-    } catch { /* ignore */ }
+      const importedCount = newAngles.length + archivedMatches.length;
+      if (importedCount > 0) toast.success(`${importedCount} angle${importedCount !== 1 ? 's' : ''} imported or restored`);
+    } catch (err) {
+      toast.error(err?.message || 'Failed to import angles');
+    }
     finally { setImporting(false); }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importResult) return;
+    const hasDuplicates = (importResult.archivedMatches?.length || 0) > 0 || (importResult.activeMatches?.length || 0) > 0;
+    if (hasDuplicates) {
+      setImportDedupPrompt(importResult);
+      return;
+    }
+    if (!importResult.newAngles?.length) return;
+    await performImport({ newAngles: importResult.newAngles });
   };
 
   const safeProjects = ensureArray(projects, 'AgentMonitor.director.projectsState');
@@ -2465,6 +2869,14 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   ];
 
   const pinSystemFirst = (list) => list.sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0));
+  const angleCountsReady = anglesLoadedFor === selectedProject || angleOptionsLoadedFor === selectedProject;
+  const activeAngleCountSource = anglesLoadedFor === selectedProject
+    ? safeAngles.filter(a => a.status === 'active')
+    : angleOptionsLoadedFor === selectedProject
+      ? safeAngleOptions
+      : [];
+  const angleCount = activeAngleCountSource.length;
+  const customAngleCount = activeAngleCountSource.filter(angle => angle.is_system_default !== true).length;
   const activeAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
     ? pinSystemFirst(safeAngles.filter(a => a.status === 'active'))
     : [];
@@ -2474,9 +2886,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const archivedAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
     ? pinSystemFirst(safeAngles.filter(a => a.status === 'archived' || a.status === 'retired'))
     : [];
-  const selectableAnglesForBulk = [...activeAngles, ...testingAngles];
+  const selectableAnglesForBulk = [...activeAngles, ...testingAngles].filter(angle => angle.is_system_default !== true);
   const selectedVisibleAngleCount = selectableAnglesForBulk.filter(angle => selectedAngleIds.includes(angle.externalId)).length;
   const allVisibleAnglesSelected = selectableAnglesForBulk.length > 0 && selectedVisibleAngleCount === selectableAnglesForBulk.length;
+  const foundationalDocsComplete = foundationalDocsLoadedFor === selectedProject && hasCompleteFoundationalDocs(foundationalDocs);
 
   useEffect(() => {
     if (!selectedAngleId) return;
@@ -2517,7 +2930,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           >
             <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${config?.enabled ? 'left-3.5 bg-ed-green' : 'left-0.5 bg-ed-ink3'}`} />
           </div>
-          Enabled
+          <span className="inline-flex items-center gap-1">
+            Enable Creative Director
+            <InfoTooltip text="When on, the Director runs automatically at 7am / 7pm / 1am ICT. Generated ads land in Staging for review." position="bottom" />
+          </span>
         </label>
 
         <div className="ml-auto grid grid-cols-1 sm:grid-cols-[minmax(180px,260px)_130px_minmax(160px,220px)_auto] items-end gap-2">
@@ -2583,15 +2999,18 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             </select>
             <TemplateTagHelp projectId={selectedProject} hasTags={templateTags.length > 0} className="text-[9px]" />
           </div>
-          <button
-            data-testid="director-test-run-button"
-            onClick={handleTestRun}
-            disabled={!canTriggerTestRun}
-            className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
-            title={!selectedAngleId ? 'Select a test angle first.' : `Create a test ad set with ${testAdSetTargetValue} approved ads.`}
-          >
-            {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              data-testid="director-test-run-button"
+              onClick={handleTestRun}
+              disabled={!canTriggerTestRun}
+              className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
+              title={!selectedAngleId ? 'Select a test angle first.' : `Create a test ad set with ${testAdSetTargetValue} approved ads.`}
+            >
+              {activeRun ? <><Spinner /> {queuedRuns.length > 0 ? `Running (${queuedRuns.length} queued)` : 'Running...'}</> : queuedRuns.length > 0 ? `Queue Run (${queuedRuns.length} queued)` : 'Test Run'}
+            </button>
+            <InfoTooltip text="Trigger one immediate batch for this angle. Each test run uses LLM credits (a few dollars per batch). Results land in Staging within 5–15 minutes." position="bottom" />
+          </div>
         </div>
       </div>
 
@@ -2663,17 +3082,38 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           )}
         </div>
       )}
-      {queuedCount > 0 && (
-        <div className="flex items-center gap-2 mb-4">
-          <p className="text-[10px] text-ed-ink3">
-            {queuedCount} run{queuedCount !== 1 ? 's' : ''} queued{activeRun ? '' : ', waiting...'}
-          </p>
-          <button
-            onClick={handleClearQueue}
-            className="text-[10px] text-ed-ink3 hover:text-ed-rust transition-colors"
-          >
-            Clear queue
-          </button>
+      {queuedRuns.length > 0 && (
+        <div className="mb-4 rounded-lg border border-black/5 bg-black/[0.02] px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] text-ed-ink3">
+              {queuedRuns.length} run{queuedRuns.length !== 1 ? 's' : ''} queued{activeRun ? '' : ', waiting for the scheduler...'}
+            </p>
+            <button
+              onClick={handleClearQueue}
+              className="text-[10px] text-ed-ink3 hover:text-ed-rust transition-colors"
+            >
+              Clear queue
+            </button>
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {queuedRuns.map((run, index) => (
+              <div key={run.id} className="flex items-center justify-between gap-3 rounded-md bg-ed-surface/70 border border-black/5 px-2 py-1.5">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium text-ed-ink">
+                    Position {run.queuePosition || index + 1}
+                    {run.result?.runId || run.serverRunId ? <span className="text-ed-ink3 font-normal"> · Run {(run.result?.runId || run.serverRunId).slice(0, 8)}</span> : null}
+                  </p>
+                  <p className="text-[10px] text-ed-ink3 truncate">{run.phase || 'Queued behind the current Creative Director run.'}</p>
+                </div>
+                <button
+                  onClick={() => handleRemoveQueued(run.id)}
+                  className="text-[10px] text-ed-rust hover:text-ed-rust font-medium px-2 py-0.5 rounded hover:bg-ed-rust/5 transition-colors shrink-0"
+                >
+                  Cancel
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -2682,23 +3122,24 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         <div className="mb-4 space-y-2">
           {finishedRuns.map(run => {
             const queueRunId = getQueueRunId(run);
+            const complete = isQueueRunComplete(run);
             return (
               <div
                 key={run.id}
                 className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[11px] ${
-                  run.status === 'complete' ? 'bg-ed-green/5 border border-ed-green/20' : 'bg-ed-rust/10 border border-ed-rust/30'
+                  complete ? 'bg-ed-green/5 border border-ed-green/20' : 'bg-ed-rust/10 border border-ed-rust/30'
                 }`}
               >
                 <span className="mt-0.5 shrink-0">
-                  {run.status === 'complete' ? (
+                  {complete ? (
                     <svg className="w-3.5 h-3.5 text-ed-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                   ) : (
                     <svg className="w-3.5 h-3.5 text-ed-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   )}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className={`font-medium ${run.status === 'complete' ? 'text-ed-green' : 'text-ed-rust'}`}>
-                    {run.status === 'complete' ? 'Test Run Complete' : 'Test Run Failed'}
+                  <p className={`font-medium ${complete ? 'text-ed-green' : 'text-ed-rust'}`}>
+                    {complete ? 'Test Run Complete' : 'Test Run Failed'}
                   </p>
                   {queueRunId && (
                     <p className="text-[10px] text-ed-ink3 mt-0.5">Run {queueRunId.slice(0, 8)}</p>
@@ -2762,6 +3203,15 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             </div>
           )}
 
+          <DirectorSetupTipsPanel
+            projectId={selectedProject}
+            foundationalDocsComplete={foundationalDocsComplete}
+            angleCount={angleCount}
+            customAngleCount={customAngleCount}
+            directorEnabled={!!config?.enabled}
+            userRole={userRole}
+          />
+
           {/* Focus mode banner */}
           {activeAngles.some(a => a.focused) && (
             <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-ed-accent/10 border border-ed-accent/20">
@@ -2816,26 +3266,31 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
               Export
             </button>
-            <button
-              onClick={() => { setShowImport(!showImport); setImportResult(null); }}
-              className={`ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 ${showImport ? 'ring-1 ring-ed-accent/30' : ''}`}
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5m0 0L7 8m5-5v12" /></svg>
-              Import
-            </button>
-            <button
-              onClick={handleCopyAnglePrompt}
-              disabled={!selectedProject || copyingPrompt}
-              title="Copy a ready-made prompt that you can paste into ChatGPT or Claude to generate a list of angles in the exact import format."
-              className="ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
-            >
-              {copyingPrompt ? (
-                <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" /></svg>
-              ) : (
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-              )}
-              {copyingPrompt ? 'Copying...' : 'Copy LLM Prompt'}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => { setShowImport(!showImport); setImportResult(null); setImportDedupPrompt(null); }}
+                className={`ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 ${showImport ? 'ring-1 ring-ed-accent/30' : ''}`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5m0 0L7 8m5-5v12" /></svg>
+                Import
+              </button>
+              <InfoTooltip text="Paste the markdown your LLM generated. Each angle in the markdown will be added to your project library." position="bottom" />
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCopyAnglePrompt}
+                disabled={!selectedProject || copyingPrompt}
+                className="ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
+              >
+                {copyingPrompt ? (
+                  <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" /></svg>
+                ) : (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                )}
+                {copyingPrompt ? 'Copying...' : 'Copy LLM Prompt'}
+              </button>
+              <InfoTooltip text="Copies a custom prompt to your clipboard. Paste it into any capable LLM (ChatGPT, Claude). The LLM walks you through generating angles and you import the result back here." position="bottom" />
+            </div>
           </div>
 
           {/* Import panel */}
@@ -2892,16 +3347,24 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                     <p className="text-[11px] text-ed-ink2 mb-3">No new angles found — all angles in the file already exist.</p>
                   )}
                   {importResult.skipped.length > 0 && (
-                    <p className="text-[10px] text-ed-ink3 mb-3">{importResult.skipped.length} angle{importResult.skipped.length !== 1 ? 's' : ''} skipped (already exist)</p>
+                    <div className="text-[10px] text-ed-ink3 mb-3 space-y-1">
+                      <p>{importResult.skipped.length} angle{importResult.skipped.length !== 1 ? 's' : ''} matched existing library entries.</p>
+                      {importResult.archivedMatches?.length > 0 && (
+                        <p>{importResult.archivedMatches.length} archived match{importResult.archivedMatches.length !== 1 ? 'es' : ''}: {importResult.archivedMatches.map(match => match.existingAngle?.name || match.angle?.name).join(', ')}</p>
+                      )}
+                      {importResult.activeMatches?.length > 0 && (
+                        <p>{importResult.activeMatches.length} active match{importResult.activeMatches.length !== 1 ? 'es' : ''}: {importResult.activeMatches.map(match => match.existingAngle?.name || match.angle?.name).join(', ')}</p>
+                      )}
+                    </div>
                   )}
                   <div className="flex gap-2">
-                    {importResult.newAngles.length > 0 && (
-                      <button onClick={handleConfirmImport} disabled={importing} className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
-                        {importing ? 'Importing...' : `Import ${importResult.newAngles.length} Angle${importResult.newAngles.length !== 1 ? 's' : ''}`}
+                    {(importResult.newAngles.length > 0 || importResult.skipped.length > 0) && (
+                      <button onClick={handleConfirmImport} disabled={importing} className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
+                        {importing ? 'Importing...' : importResult.skipped.length > 0 ? 'Review Import Options' : `Import ${importResult.newAngles.length} Angle${importResult.newAngles.length !== 1 ? 's' : ''}`}
                       </button>
                     )}
-                    <button onClick={() => { setImportResult(null); setShowImport(false); }} className="ed-ghost text-[11px] px-3 py-1.5">Cancel</button>
-                    {!importing && importResult.newAngles.length === 0 && (
+                    <button onClick={() => { setImportResult(null); setImportDedupPrompt(null); setShowImport(false); }} className="ed-ghost text-[11px] px-3 py-1.5">Cancel</button>
+                    {!importing && importResult.newAngles.length === 0 && importResult.skipped.length === 0 && (
                       <button onClick={() => setImportResult(null)} className="ed-ghost text-[11px] px-3 py-1.5">Try Another File</button>
                     )}
                   </div>
@@ -3005,7 +3468,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               </div>
               <textarea placeholder="Prompt hints — additional creative direction (optional)" value={newAngle.prompt_hints} onChange={e => setNewAngle(prev => ({ ...prev, prompt_hints: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-3 text-[12px] h-14 resize-none" />
               <div className="flex gap-2">
-                <button onClick={handleAddAngle} className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors">Save Angle</button>
+                <button onClick={handleAddAngle} className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors">Save Angle</button>
                 <button onClick={() => setShowAddAngle(false)} className="ed-ghost text-[11px] px-3 py-1.5">Cancel</button>
               </div>
             </div>
@@ -3028,6 +3491,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
       {subTab === 'settings' && config && (
         <div className="space-y-4">
+          <DirectorSettingsAnglesCallout
+            customAngleCount={customAngleCount}
+            countsReady={angleCountsReady}
+            userRole={userRole}
+            onGoToAngles={() => setSubTab('angles')}
+          />
+
           <div className="rounded-xl bg-ed-accent/5 border border-ed-accent/10 px-3 py-3">
             <p className="text-[12px] font-medium text-ed-ink">How the Director builds ad sets</p>
             <p className="text-[11px] text-ed-ink2 mt-1 leading-relaxed">
@@ -3448,6 +3918,25 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           )}
         </div>
       )}
+
+      <ImportDedupDialog
+        open={!!importDedupPrompt}
+        result={importDedupPrompt}
+        importing={importing}
+        onImportNewOnly={() => performImport({ newAngles: importDedupPrompt?.newAngles || [] })}
+        onImportWithArchived={() => performImport({
+          newAngles: importDedupPrompt?.newAngles || [],
+          archivedMatches: importDedupPrompt?.archivedMatches || [],
+        })}
+        onCancel={() => setImportDedupPrompt(null)}
+      />
+      <DefaultAngleArchiveDialog
+        open={!!defaultArchivePrompt}
+        angle={defaultArchivePrompt?.angle}
+        busy={defaultArchiveBusy}
+        onConfirm={handleConfirmDefaultArchive}
+        onCancel={() => setDefaultArchivePrompt(null)}
+      />
     </div>
   );
 }
@@ -3556,7 +4045,20 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions, se
           )}
           <span className={`text-[11px] text-ed-ink3 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
           <span className="text-[13px] font-medium text-ed-ink">{angle.name}</span>
-          {angle.is_system_default && <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-ed-accent/10 text-ed-accent">System</span>}
+          {angle.is_system_default && (
+            <>
+              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-ed-accent/10 text-ed-accent">Direct Offer</span>
+              <span
+                className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-black/5 text-[10px] text-ed-ink2"
+                title="Project default — archiving requires confirmation."
+                aria-label="Project default — archiving requires confirmation."
+              >
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 11V8a5 5 0 0110 0v3M6 11h12v9H6z" />
+                </svg>
+              </span>
+            </>
+          )}
           {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-ed-bg text-gray-600'}`}>{angle.priority}</span>}
           {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-ed-bg text-gray-600'}`}>{angle.frame}</span>}
           {angleTags.map(tag => (
@@ -3881,7 +4383,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
         <button
           onClick={handleRunLive}
           disabled={!!runningAction}
-          className="px-2.5 py-1 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
+          className="px-2.5 py-1 rounded-[7px] text-[11px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
         >
           {runningAction === 'live' ? <><Spinner /> Running...</> : <>{'\u25B6'} Run Now</>}
         </button>

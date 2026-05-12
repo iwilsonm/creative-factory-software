@@ -12,9 +12,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   getConductorConfig, upsertConductorConfig,
-  getActiveConductorAngles, updateConductorAngle, getSystemDefaultAngle, createConductorAngle,
+  getActiveConductorAngles, updateConductorAngle,
   getConductorPlaybook,
-  createConductorRun, updateConductorRun, getConductorRuns,
+  createConductorRun as createConductorRunRaw, updateConductorRun as updateConductorRunRaw, getConductorRuns,
+  enqueueConductorTestRun, claimQueuedConductorTestRun, releaseQueuedConductorTestRun, cancelQueuedConductorTestRun,
   getConductorSlotsByPostingDay, createConductorSlot, updateConductorSlot,
   createBatchJob, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd,
@@ -242,10 +243,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
           continue;
         }
 
-        const angleInfo = {
-          name: workingSlot.angle_name,
-          externalId: workingSlot.angle_external_id,
-        };
+        const angleInfo = await hydrateAngleInfoForSlot(projectId, workingSlot);
         const batchId = uuidv4();
 
         const approvedSoFar = slotQaProgress?.passedCount || 0;
@@ -258,7 +256,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
         if (hasStructuredBrief(angleInfo)) {
           anglePrompt = buildStructuredAnglePrompt(angleInfo);
         } else {
-          anglePrompt = angleInfo.description;
+          anglePrompt = angleInfo.description || angleInfo.name || 'General ad creative angle.';
         }
         if (angleInfo.prompt_hints) {
           anglePrompt += `\n\nCREATIVE DIRECTION:\n${angleInfo.prompt_hints}`;
@@ -712,6 +710,38 @@ function buildPostingDaySlotResult(slot) {
   };
 }
 
+function buildFallbackAngleInfoForSlot(slot) {
+  const name = slot?.angle_name || 'General';
+  return {
+    name,
+    externalId: slot?.angle_external_id || 'fallback',
+    description: name === 'General'
+      ? 'General ad creative angle.'
+      : `Director-selected angle: ${name}`,
+    prompt_hints: '',
+    times_used: 0,
+  };
+}
+
+async function hydrateAngleInfoForSlot(projectId, slot) {
+  const fallback = buildFallbackAngleInfoForSlot(slot);
+  try {
+    const angles = await getActiveConductorAngles(projectId);
+    const byExternalId = slot?.angle_external_id
+      ? angles.find(angle => angle.externalId === slot.angle_external_id)
+      : null;
+    if (byExternalId) return byExternalId;
+
+    const byName = slot?.angle_name
+      ? angles.find(angle => angle.name === slot.angle_name)
+      : null;
+    return byName || fallback;
+  } catch (err) {
+    console.warn(`[Director] Failed to hydrate angle "${fallback.name}" for slot ${slot?.id || 'unknown'}: ${err.message}`);
+    return fallback;
+  }
+}
+
 async function ensurePostingDaySlots(projectId, config, postingDay) {
   let slots = await getConductorSlotsByPostingDay(projectId, postingDay);
   const target = config.daily_flex_target || 0;
@@ -769,59 +799,7 @@ async function replaceFailedSlot(projectId, config, postingDay, slot, allSlots) 
  * Returns an array of angle objects, one per batch needed.
  */
 
-const BOF_ANGLE = {
-  name: 'BOF (Bottom of Funnel)',
-  description: `Core Buyer: Warm prospects who already know the product — visited the site, seen ads, comparing options, almost ready to buy.
-Symptom Pattern: Hesitation at the point of purchase — needs one more push: a better deal, stronger proof, or final reassurance.
-Objection: Price concerns, skepticism about results, uncertainty about whether this is the right product for them.
-Scene: Scrolling Facebook or Instagram feed, pauses on a clean product-focused ad with a star rating and a limited-time offer.
-Desired Belief Shift: This product is proven, trustworthy, easy to buy, and worth buying now.`,
-  core_buyer: 'Warm prospects who already know the product — visited the site, seen ads, comparing options, almost ready to buy',
-  symptom_pattern: 'Hesitation at the point of purchase — needs one more push: a better deal, stronger proof, or final reassurance',
-  objection: 'Price concerns, skepticism about results, uncertainty about whether this is the right product for them',
-  scene: 'Scrolling Facebook or Instagram feed, pauses on a clean product-focused ad with a star rating and a limited-time offer',
-  desired_belief_shift: 'This product is proven, trustworthy, easy to buy, and worth buying now',
-  tone: 'Direct, confident, conversion-focused — like a high-performing static Facebook ad',
-  avoid_list: 'Awareness-stage messaging, abstract artistic imagery, lifestyle mood images, overcrowded layouts, generic posters, long educational content',
-  frame: 'bottom-of-funnel',
-  prompt_hints: `IMAGE DIRECTION — Conversion-focused ecommerce ad to close the sale:
-
-1. PRODUCT VISUAL: Show the actual product clearly and prominently as the main focus. Use a clean, polished product shot or show it in use realistically. Not abstract or overly artistic.
-
-2. HEADLINE: Short, direct headline that removes hesitation or gives a reason to buy now. Examples: "Sleep Better Tonight", "Try It Risk-Free for 90 Days", "Still Struggling With [PROBLEM]?", "Why Thousands Switched to [PRODUCT]"
-
-3. PROOF ELEMENT: Include at least one: star rating (e.g. 4.8 stars), customer count (10,000+ happy customers), short customer quote, review snippet, or before/after result. Keep it short and scannable.
-
-4. TRUST/OFFER ELEMENT: Include at least one: 90-day guarantee, free shipping, easy returns, limited-time discount, bundle savings, or doctor recommended. Make the product feel safe and worth buying now.
-
-5. CTA: Simple call to action: "Shop Now", "Get Yours Today", "Claim Your Discount", "Try It Risk-Free"
-
-DESIGN: Clean layout, easy to scan in 1-2 seconds. Product visually dominant. Text short and bold. Important elements obvious at a glance. Do NOT overcrowd. Should feel like a mini sales page compressed into one static ad. Make it look like a real high-converting static Facebook or Instagram ad.`,
-};
-
-async function ensureBofAngle(projectId) {
-  try {
-    const existing = await getSystemDefaultAngle(projectId);
-    if (existing) return;
-    await createConductorAngle({
-      id: uuidv4(),
-      project_id: projectId,
-      ...BOF_ANGLE,
-      source: 'system',
-      status: 'active',
-      priority: 'medium',
-      is_system_default: true,
-    });
-    console.log(`[Director] Created BOF angle for project ${projectId}`);
-  } catch (err) {
-    console.error(`[Director] Failed to create BOF angle: ${err.message}`);
-  }
-}
-
 async function selectAngles(projectId, config, count, excludedAngleNames = []) {
-  // Ensure BOF (Bottom of Funnel) system angle exists
-  await ensureBofAngle(projectId);
-
   const activeAngles = await getActiveConductorAngles(projectId);
   const filtered = filterAnglesByConfiguredTag(activeAngles, config);
   const selectableAngles = filtered.angles;
@@ -1005,11 +983,30 @@ const TEST_RUN_DEFAULT_TARGET = 5;
 const TEST_RUN_MAX_ROUNDS = 5;
 const TEST_RUN_REFILL_MULTIPLIER = 2;
 const TEST_RUN_ORCHESTRATION_FAILURE_STATUS = 'orchestration_failed';
-const TEST_RUN_GEMINI_WAIT_MS = 30 * 60 * 1000;
+const TEST_RUN_INLINE_GEMINI_WAIT_MS = 60 * 1000;
 const TEST_RUN_SCORING_STALE_MS = 10 * 60 * 1000;
 const TEST_RUN_ROUND_CAP_TERMINAL_STATUS = 'failed_under_threshold_after_round_cap';
 const DIRECTOR_SCORE_THRESHOLD = 7;
 const TEST_RUN_CANCELLED_STATUS = 'cancelled';
+const ACTIVE_CONDUCTOR_RUN_STATUSES = new Set(['running', 'scoring', 'repairing', 'processing']);
+
+function conductorHeartbeatAt() {
+  return new Date().toISOString();
+}
+
+async function createConductorRun(fields) {
+  return await createConductorRunRaw({
+    ...fields,
+    last_heartbeat_at: fields.last_heartbeat_at || conductorHeartbeatAt(),
+  });
+}
+
+async function updateConductorRun(id, fields) {
+  return await updateConductorRunRaw(id, {
+    ...fields,
+    last_heartbeat_at: fields.last_heartbeat_at || conductorHeartbeatAt(),
+  });
+}
 
 function stringifyJSON(value, fallback = '[]') {
   try {
@@ -1385,7 +1382,7 @@ function buildDurableRunProgress(run, batchInfo, batch) {
 async function buildDurableActiveTestRun(projectId) {
   const runs = await getConductorRuns(projectId, 10);
   const testRuns = runs.filter((run) => run.run_type === 'test');
-  const candidate = testRuns.find((run) => run.status === 'running')
+  const candidate = testRuns.find((run) => ACTIVE_CONDUCTOR_RUN_STATUSES.has(run.status))
     || testRuns.find(isGeminiBackgroundWaitFailure);
 
   if (!candidate) return null;
@@ -1607,11 +1604,11 @@ async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = 
     const secs = elapsed % 60;
     const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 
-    if (Date.now() - pollStart > TEST_RUN_GEMINI_WAIT_MS) {
+    if (Date.now() - pollStart > TEST_RUN_INLINE_GEMINI_WAIT_MS) {
       return {
         deferred: true,
         step: 'gemini_waiting',
-        message: getGeminiTimeoutMessage(roundNumber),
+        message: getBackgroundWaitingMessage(roundNumber),
       };
     }
 
@@ -2697,6 +2694,7 @@ async function markTestRunWaitingOnGemini({
   await updateConductorRun(runId, {
     status: 'running',
     terminal_status: 'waiting_on_gemini',
+    error_stage: 'gemini_waiting',
     error: '',
     failure_reason: '',
     posting_days: angleName ? getTestPostingDays(angleName) : stringifyJSON([{ date: 'test', action: 'Waiting on Gemini' }]),
@@ -2872,7 +2870,18 @@ async function continueBackgroundTestRun(run) {
 
     const roundNumber = batchInfo.round || (roundDetails.length + 1);
     backgroundErrorStage = 'filter_scoring';
-    const roundScoreResult = await scoreBatchForInlineFilter(batchInfo.batch_id, projectId, null, {
+    const roundScoreResult = await scoreBatchForInlineFilter(batchInfo.batch_id, projectId, (event) => {
+      if (event?.step === 'filter_scoring') {
+        updateConductorRun(runId, {
+          status: 'scoring',
+          terminal_status: 'filter_scoring',
+          error_stage: 'filter_scoring',
+          decisions: event.message || `Round ${roundNumber}: Creative Filter QA is scoring generated ads...`,
+        }).catch((err) => {
+          console.warn(`[Director] Could not heartbeat scoring run ${runId.slice(0, 8)}: ${err.message}`);
+        });
+      }
+    }, {
       roundNumber,
       totalRounds: TEST_RUN_MAX_ROUNDS,
       shouldCancel: () => throwIfDurableTestRunCancelled(projectId, runId).then(() => false).catch((err) => {
@@ -3245,6 +3254,52 @@ export async function resumeBackgroundTestRuns() {
   return summary;
 }
 
+export async function startQueuedTestRuns({ owner = `conductor-queue:${Date.now()}`, limit = 1, leaseMs = 4 * 60 * 1000 } = {}) {
+  const summary = { checked: 0, started: 0, queued_remaining: 0, errors: 0 };
+
+  for (let i = 0; i < limit; i++) {
+    const claim = await claimQueuedConductorTestRun(owner, leaseMs).catch((err) => {
+      summary.errors += 1;
+      console.warn(`[Director] Could not claim queued test run: ${err.message}`);
+      return { claimed: false, reason: 'claim_error' };
+    });
+    if (!claim?.claimed || !claim.run) break;
+
+    summary.checked += 1;
+    const run = claim.run;
+    try {
+      console.log(`[Director] Starting queued test run ${run.externalId.slice(0, 8)} for project ${run.project_id}`);
+      await runFullTestPipeline(run.project_id, null, {
+        angleOverride: run.queued_angle_id,
+        adsPerAdSetTarget: run.required_passes || TEST_RUN_DEFAULT_TARGET,
+        templateTag: run.template_tag || '',
+        existingRun: run,
+      });
+      summary.started += 1;
+    } catch (err) {
+      summary.errors += 1;
+      await updateConductorRun(run.externalId, {
+        status: 'failed',
+        terminal_status: TEST_RUN_ORCHESTRATION_FAILURE_STATUS,
+        error: err.message || 'Queued test run failed to start.',
+        failure_reason: err.message || 'Queued test run failed to start.',
+        error_stage: 'queued_start',
+        duration_ms: Date.now() - (run.run_at || Date.now()),
+        decisions: err.message || 'Queued test run failed to start.',
+      }).catch((updateErr) => {
+        console.warn(`[Director] Could not mark queued test run ${run.externalId.slice(0, 8)} failed: ${updateErr.message}`);
+      });
+      console.error(`[Director] Queued test run ${run.externalId.slice(0, 8)} failed:`, err.message);
+    } finally {
+      await releaseQueuedConductorTestRun(run.externalId, owner).catch((err) => {
+        console.warn(`[Director] Could not release queued test run ${run.externalId.slice(0, 8)} lease: ${err.message}`);
+      });
+    }
+  }
+
+  return summary;
+}
+
 /**
  * Run a single test batch for a project — bypasses production windows and deficit checks.
  * Creates one full batch, fires it, and lets the Filter pick it up end-to-end.
@@ -3354,7 +3409,35 @@ function findTrackedTestRun(projectId) {
 
 async function hasDurableActiveTestRun(projectId) {
   const runs = await getConductorRuns(projectId, 10);
-  return runs.some((run) => run.run_type === 'test' && run.status === 'running');
+  return runs.some((run) => run.run_type === 'test' && ACTIVE_CONDUCTOR_RUN_STATUSES.has(run.status));
+}
+
+async function hasDurableActiveConductorRun(projectId, { excludeRunId = null } = {}) {
+  const runs = await getConductorRuns(projectId, 20);
+  return runs.some((run) =>
+    run.externalId !== excludeRunId && ACTIVE_CONDUCTOR_RUN_STATUSES.has(run.status)
+  );
+}
+
+async function hasDurableQueuedTestRun(projectId) {
+  const runs = await getConductorRuns(projectId, 20);
+  return runs.some((run) => run.run_type === 'test' && run.status === 'queued');
+}
+
+async function enqueueTestRun(projectId, { angleOverride, requiredPasses, templateTag }) {
+  const runId = uuidv4();
+  const now = new Date();
+  return await enqueueConductorTestRun({
+    externalId: runId,
+    project_id: projectId,
+    queued_angle_id: angleOverride,
+    required_passes: requiredPasses,
+    ads_per_round: getTestRoundBatchSize(1, 0, requiredPasses),
+    template_tag: normalizeTemplateTag(templateTag) || undefined,
+    max_rounds: TEST_RUN_MAX_ROUNDS,
+    now: now.toISOString(),
+    run_at: now.getTime(),
+  });
 }
 
 /**
@@ -3374,10 +3457,18 @@ export function getActiveTestRun(projectId) {
  * Marks both in-memory tracking and the durable run record so Vercel
  * serverless/background resumes cannot continue after a different request cancels.
  */
-export async function cancelTestRun(projectId) {
+export async function cancelTestRun(projectId, { runId = null } = {}) {
+  if (runId) {
+    const queuedCancel = await cancelQueuedConductorTestRun(runId).catch((err) => {
+      console.warn(`[Director] Could not cancel queued test run ${runId.slice(0, 8)}: ${err.message}`);
+      return { cancelled: false, reason: 'cancel_error' };
+    });
+    if (queuedCancel?.cancelled) return true;
+  }
+
   const tracked = findTrackedTestRun(projectId);
   let cancelled = false;
-  if (tracked) {
+  if (tracked && (!runId || tracked[0] === runId || tracked[1]?.runId === runId)) {
     const [, run] = tracked;
     run.cancelRequested = true;
     run.phase = 'Cancel requested. Stopping active generation work...';
@@ -3390,7 +3481,7 @@ export async function cancelTestRun(projectId) {
   const runs = await getConductorRuns(projectId, 10);
   const candidate = runs
     .filter((run) => run.run_type === 'test')
-    .find((run) => ['running', 'scoring'].includes(run.status) && !isTestRunCancelled(run));
+    .find((run) => (!runId || run.externalId === runId) && ['running', 'scoring', 'repairing', 'processing'].includes(run.status) && !isTestRunCancelled(run));
 
   if (!candidate) return cancelled;
 
@@ -3444,12 +3535,28 @@ export async function cancelTestRun(projectId) {
  * @param {{ angleOverride?: string, adsPerAdSetTarget?: number, templateTag?: string }} options
  * @returns {object} Combined result from Director + Filter phases
  */
-export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, adsPerAdSetTarget = TEST_RUN_DEFAULT_TARGET, templateTag = '' } = {}) {
+export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, adsPerAdSetTarget = TEST_RUN_DEFAULT_TARGET, templateTag = '', existingRun = null } = {}) {
   const rawEmit = sendEvent || (() => {});
-  const requiredPasses = normalizeTestRunAdTarget(adsPerAdSetTarget);
-  const normalizedTemplateTag = normalizeTemplateTag(templateTag);
+  const requiredPasses = normalizeTestRunAdTarget(existingRun?.required_passes || adsPerAdSetTarget);
+  const normalizedTemplateTag = normalizeTemplateTag(existingRun?.template_tag || templateTag);
+  const queuedAngleOverride = existingRun?.queued_angle_id || angleOverride;
 
-  if (findTrackedTestRun(projectId) || await hasDurableActiveTestRun(projectId)) {
+  if (!existingRun && (findTrackedTestRun(projectId) || await hasDurableActiveConductorRun(projectId) || await hasDurableQueuedTestRun(projectId))) {
+    const queued = await enqueueTestRun(projectId, {
+      angleOverride,
+      requiredPasses,
+      templateTag: normalizedTemplateTag,
+    });
+    if (queued?.queued) {
+      return {
+        queued: true,
+        runId: queued.run?.externalId,
+        queue_position: queued.run?.queue_position,
+        status: 'queued',
+        phase: `Queued behind the active Creative Director run (position ${queued.run?.queue_position || 1}).`,
+        message: `Queued behind the active Creative Director run (position ${queued.run?.queue_position || 1}).`,
+      };
+    }
     throw new Error('A test run is already in progress for this project. Cancel it or wait for it to finish before starting another.');
   }
 
@@ -3459,14 +3566,14 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     status: 'running',
     progress: 0,
     phase: 'Starting...',
-    startTime: Date.now(),
+    startTime: existingRun?.started_at ? Date.parse(existingRun.started_at) : Date.now(),
     result: null,
     cancelRequested: false,
     currentBatchId: null,
     runId: null,
     requiredPasses,
   };
-  const trackingId = `pending-${Date.now()}`;
+  const trackingId = existingRun?.externalId || `pending-${Date.now()}`;
   activeTestRuns.set(trackingId, runProgress);
 
   const throwIfRunCancelled = async () => {
@@ -3511,7 +3618,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       setTimeout(() => activeTestRuns.delete(trackingId), 60000);
     }
   };
-  let runId = null;
+  let runId = existingRun?.externalId || null;
   let angleName = '';
   const batchInfos = [];
   const roundDetails = [];
@@ -3529,20 +3636,35 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       targetCount: requiredPasses,
     });
     await assertTestRunProviderPreflight(projectId, { templateTag: normalizedTemplateTag });
-    runId = uuidv4();
+    runId = runId || uuidv4();
     runProgress.runId = runId;
 
-    await createConductorRun({
-      externalId: runId,
-      project_id: projectId,
-      run_type: 'test',
-      run_at: runProgress.startTime,
-      status: 'running',
-      required_passes: requiredPasses,
-      ads_per_round: getTestRoundBatchSize(1, 0, requiredPasses),
-      template_tag: normalizedTemplateTag || undefined,
-      max_rounds: TEST_RUN_MAX_ROUNDS,
-    });
+    if (existingRun) {
+      await updateConductorRun(runId, {
+        status: 'running',
+        terminal_status: 'starting',
+        error: '',
+        failure_reason: '',
+        error_stage: '',
+        started_at: conductorHeartbeatAt(),
+        required_passes: requiredPasses,
+        ads_per_round: getTestRoundBatchSize(1, 0, requiredPasses),
+        template_tag: normalizedTemplateTag || undefined,
+        max_rounds: TEST_RUN_MAX_ROUNDS,
+      });
+    } else {
+      await createConductorRun({
+        externalId: runId,
+        project_id: projectId,
+        run_type: 'test',
+        run_at: runProgress.startTime,
+        status: 'running',
+        required_passes: requiredPasses,
+        ads_per_round: getTestRoundBatchSize(1, 0, requiredPasses),
+        template_tag: normalizedTemplateTag || undefined,
+        max_rounds: TEST_RUN_MAX_ROUNDS,
+      });
+    }
 
     await throwIfRunCancelled();
     errorStage = 'selecting_angle';
@@ -3552,7 +3674,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       message: 'Preparing selected angle...',
       targetCount: requiredPasses,
     });
-    const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
+    const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, queuedAngleOverride);
     angleName = angleInfo.name;
     errorStage = 'building_prompt';
     emit({
@@ -3641,7 +3763,19 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       const roundScoreResult = await scoreBatchForInlineFilter(
         batchInfo.batch_id,
         projectId,
-        (event) => emit(withTestProgress(roundNumber, event)),
+        (event) => {
+          emit(withTestProgress(roundNumber, event));
+          if (event?.step === 'filter_scoring') {
+            updateConductorRun(runId, {
+              status: 'scoring',
+              terminal_status: 'filter_scoring',
+              error_stage: 'filter_scoring',
+              decisions: event.message || `Round ${roundNumber}: Creative Filter QA is scoring generated ads...`,
+            }).catch((err) => {
+              console.warn(`[Director] Could not heartbeat scoring run ${runId.slice(0, 8)}: ${err.message}`);
+            });
+          }
+        },
         {
           roundNumber,
           totalRounds: TEST_RUN_MAX_ROUNDS,

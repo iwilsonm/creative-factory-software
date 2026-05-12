@@ -5,8 +5,8 @@ import path from 'node:path';
 
 const BASE_URL = process.env.BASE_URL || 'https://creative-factory-software.vercel.app';
 const PROJECT_ID = process.env.PROJECT_ID || '4f8aed31-c2ac-4dca-8dc6-233838d9a069';
-const USERNAME = process.env.CF_USERNAME || 'admin';
-const PASSWORD = process.env.CF_PASSWORD || '';
+const USERNAME = process.env.CF_USERNAME || process.env.CF_USERNAME || 'admin';
+const PASSWORD = process.env.CF_PASSWORD || process.env.CF_PASSWORD || '';
 const HEADLESS = process.env.HEADLESS !== '0';
 const RUN_FULL_MATRIX = process.env.LIVE_MATRIX !== 'quick';
 const RUN_SINGLES = process.env.RUN_SINGLES !== '0';

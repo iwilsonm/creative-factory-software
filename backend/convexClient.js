@@ -66,13 +66,30 @@ export function getConvexHost() {
 // default retry predicate (which checks status codes) would never retry them.
 // We retry on: Server Error (transient Convex platform issues), fetch failed,
 // ECONNRESET, and other network errors.
-function convexShouldRetry(err) {
+function isConvexTransientInternalServerErrorMessage(msg) {
+  if (!msg) return false;
+  const hasTransientCode = /InternalServerError/i.test(msg);
+  const hasTransientMessage = /Your request couldn['’]t be completed/i.test(msg);
+  if (hasTransientCode && hasTransientMessage) return true;
+
+  try {
+    const parsed = JSON.parse(msg);
+    return parsed?.code === 'InternalServerError'
+      && /Your request couldn['’]t be completed/i.test(parsed?.message || '');
+  } catch {
+    return false;
+  }
+}
+
+export function convexShouldRetry(err) {
   const msg = err.message || '';
   // Convex wraps validation/business errors in "Server Error" text. Retrying
   // those only makes user-facing failures feel slow without changing outcome.
   if (/ArgumentValidationError|Value does not match validator|Object is missing the required field|INVALID_DEPLOYMENTS|does not belong to this project|already exists|Could not find public function|Did you forget to run `npx convex dev`/i.test(msg)) {
     return false;
   }
+  // Convex/Vercel platform JSON error — transient platform-side 500.
+  if (isConvexTransientInternalServerErrorMessage(msg)) return true;
   // Convex "Server Error" — can be transient platform issues (502/503 from Cloudflare)
   if (/Server Error/i.test(msg)) return true;
   // Network / connection errors
@@ -182,13 +199,14 @@ export async function getSystemCapabilities() {
 // Project helpers
 // =============================================
 
-export async function createProject({ id, name, brand_name, niche, product_description, drive_folder_id, inspiration_folder_id }) {
+export async function createProject({ id, name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id }) {
   await mutationWithRetry(api.projects.create, {
     externalId: id,
     name,
     brand_name: brand_name || '',
     niche: niche || '',
     product_description: product_description || '',
+    sales_page_content: sales_page_content || '',
     drive_folder_id: drive_folder_id || '',
     inspiration_folder_id: inspiration_folder_id || '',
   });
@@ -252,7 +270,7 @@ export async function getAllProjectsWithStats() {
 // them; the Filter service uses internal constants in creativeFilterService.js.
 // Do not re-add without a real consumer.
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'template_seeding_status', 'template_seeding_error', 'archived_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'template_seeding_status', 'template_seeding_error', 'archived_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
     // Phase 1 — Staging Page + Director cycle config
     'default_campaign_id', 'adset_default_template', 'ad_sets_per_cycle', 'ads_per_ad_set',
     // Phase 2A — Meta integration
@@ -335,6 +353,7 @@ function convexProjectToRow(p) {
     brand_name: p.brand_name || '',
     niche: p.niche || '',
     product_description: p.product_description || '',
+    sales_page_content: p.sales_page_content || '',
     drive_folder_id: p.drive_folder_id || '',
     inspiration_folder_id: p.inspiration_folder_id || '',
     prompt_guidelines: p.prompt_guidelines || '',
@@ -696,6 +715,8 @@ function convexAdToRow(a) {
     gemini_batch_job: a.gemini_batch_job || null,
     error_message: a.error_message || null,
     failure_stage: a.failure_stage || null,
+    cancellation_requested_at: a.cancellation_requested_at || null,
+    cancelled_by: a.cancelled_by || null,
     last_progress_at: a.last_progress_at || null,
     image_attempts: a.image_attempts || null,
     updated_at: a.updated_at || null,
@@ -745,6 +766,8 @@ function convexAdSummaryToRow(a) {
     drive_url: a.drive_url || null,
     error_message: a.error_message || null,
     failure_stage: a.failure_stage || null,
+    cancellation_requested_at: a.cancellation_requested_at || null,
+    cancelled_by: a.cancelled_by || null,
     last_progress_at: a.last_progress_at || null,
     image_attempts: a.image_attempts || null,
     updated_at: a.updated_at || null,
@@ -2446,6 +2469,34 @@ export async function createConductorAngle({ id, project_id, name, description, 
   invalidateQueryCache('conductor');
 }
 
+export async function seedDirectOfferAngle({ id, project_id, name, description, prompt_hints, status,
+  priority, frame, core_buyer, symptom_pattern, failed_solutions, current_belief,
+  objection, emotional_state, scene, desired_belief_shift, tone, avoid_list, tags }) {
+  const result = await mutationWithRetry(api.conductor.seedDirectOfferAngle, {
+    externalId: id,
+    project_id,
+    name,
+    description,
+    prompt_hints: prompt_hints || undefined,
+    status: status || 'active',
+    priority: priority || 'medium',
+    frame: frame || undefined,
+    core_buyer: core_buyer || undefined,
+    symptom_pattern: symptom_pattern || undefined,
+    failed_solutions: failed_solutions || undefined,
+    current_belief: current_belief || undefined,
+    objection: objection || undefined,
+    emotional_state: emotional_state || undefined,
+    scene: scene || undefined,
+    desired_belief_shift: desired_belief_shift || undefined,
+    tone: tone || undefined,
+    avoid_list: avoid_list || undefined,
+    tags: Array.isArray(tags) ? tags : undefined,
+  });
+  invalidateQueryCache('conductor');
+  return result;
+}
+
 export async function updateConductorAngle(id, fields) {
   await mutationWithRetry(api.conductor.updateAngle, { externalId: id, ...fields });
   invalidateQueryCache('conductor');
@@ -2464,13 +2515,85 @@ export async function getConductorRuns(projectId, limit = 50) {
   return ensureArray(await cachedQuery('conductor', api.conductor.getRuns, { projectId, limit }), 'convexClient.getConductorRuns');
 }
 
+export async function getConductorTestQueue(projectId, limit = 50) {
+  return ensureArray(await queryWithRetry(api.conductor.getTestRunQueue, { projectId, limit }), 'convexClient.getConductorTestQueue');
+}
+
 export async function createConductorRun(fields) {
   await mutationWithRetry(api.conductor.createRun, fields);
   invalidateQueryCache('conductor');
 }
 
+export async function enqueueConductorTestRun(fields) {
+  const result = await mutationWithRetry(api.conductor.enqueueTestRun, fields);
+  invalidateQueryCache('conductor');
+  return result;
+}
+
+export async function claimQueuedConductorTestRun(owner, leaseMs = 4 * 60 * 1000) {
+  const now = new Date();
+  const result = await mutationWithRetry(api.conductor.claimQueuedTestRun, {
+    owner,
+    now: now.toISOString(),
+    lease_expires_at: new Date(now.getTime() + leaseMs).toISOString(),
+  });
+  invalidateQueryCache('conductor');
+  return result;
+}
+
+export async function releaseQueuedConductorTestRun(id, owner) {
+  const result = await mutationWithRetry(api.conductor.releaseQueuedTestRun, { externalId: id, owner });
+  invalidateQueryCache('conductor');
+  return result;
+}
+
+export async function cancelQueuedConductorTestRun(id) {
+  const result = await mutationWithRetry(api.conductor.cancelQueuedTestRun, {
+    externalId: id,
+    now: new Date().toISOString(),
+  });
+  invalidateQueryCache('conductor');
+  return result;
+}
+
+const ALLOWED_CONDUCTOR_RUN_UPDATE_FIELDS = [
+  'status',
+  'error',
+  'batches_created',
+  'angles_generated',
+  'decisions',
+  'duration_ms',
+  'posting_days',
+  'terminal_status',
+  'failure_reason',
+  'required_passes',
+  'ads_per_round',
+  'template_tag',
+  'max_rounds',
+  'total_rounds',
+  'total_ads_generated',
+  'total_ads_scored',
+  'total_ads_passed',
+  'ready_to_post_count',
+  'flex_ad_id',
+  'rounds_json',
+  'error_stage',
+  'scoring_started_at',
+  'last_heartbeat_at',
+  'queue_position',
+  'queued_at',
+  'started_at',
+  'queued_angle_id',
+  'worker_lease_owner',
+  'worker_lease_expires_at',
+];
+
 export async function updateConductorRun(id, fields) {
-  await mutationWithRetry(api.conductor.updateRun, { externalId: id, ...fields });
+  const updates = {};
+  for (const field of ALLOWED_CONDUCTOR_RUN_UPDATE_FIELDS) {
+    if (fields[field] !== undefined) updates[field] = fields[field];
+  }
+  await mutationWithRetry(api.conductor.updateRun, { externalId: id, ...updates });
   invalidateQueryCache('conductor');
 }
 

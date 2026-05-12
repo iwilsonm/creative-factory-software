@@ -32,7 +32,7 @@ function KeyStatusPill({ set }) {
 const CREDENTIAL_DELETE_COPY = {
   openai_api_key: {
     label: 'OpenAI API Key',
-    message: 'Remove the OpenAI API key? Copywriting, Creative Director reasoning, GPT Image 2, and OpenAI checks will stop until a new key is saved.',
+    message: 'Remove the OpenAI API key? Copywriting, Creative Director reasoning, and OpenAI checks will stop until a new key is saved.',
   },
   gemini_api_key: {
     label: 'Gemini API Key',
@@ -244,7 +244,7 @@ function UserManagementCard({ currentUserId, currentUsername }) {
         </h2>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[11px] px-3 py-1.5"
+          className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors text-[11px] px-3 py-1.5"
         >
           {showCreate ? 'Cancel' : '+ New User'}
         </button>
@@ -305,7 +305,7 @@ function UserManagementCard({ currentUserId, currentUsername }) {
               </select>
             </div>
           </div>
-          <button type="submit" disabled={creating} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[11px] px-4 py-1.5 disabled:opacity-50">
+          <button type="submit" disabled={creating} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors text-[11px] px-4 py-1.5 disabled:opacity-50">
             {creating ? 'Creating...' : 'Create User'}
           </button>
         </form>
@@ -349,7 +349,7 @@ function UserManagementCard({ currentUserId, currentUsername }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => handleUpdate(rowUser.id)} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1">Save</button>
+                    <button onClick={() => handleUpdate(rowUser.id)} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1">Save</button>
                     <button onClick={() => setEditingId(null)} className="ed-ghost text-[10px] px-3 py-1">Cancel</button>
                   </div>
                 </div>
@@ -367,7 +367,7 @@ function UserManagementCard({ currentUserId, currentUsername }) {
                       className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] flex-1"
                       minLength={12}
                     />
-                    <button onClick={() => handleResetPassword(rowUser.id)} disabled={resettingPassword} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1 disabled:opacity-50">
+                    <button onClick={() => handleResetPassword(rowUser.id)} disabled={resettingPassword} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1 disabled:opacity-50">
                       {resettingPassword ? 'Resetting...' : 'Reset Password'}
                     </button>
                     <button onClick={() => { setResetPasswordId(null); setNewPassword(''); }} className="ed-ghost text-[10px] px-3 py-1">Cancel</button>
@@ -463,7 +463,6 @@ export default function Settings() {
     gemini_rate_1k: '',
     gemini_rate_2k: '',
     gemini_rate_4k: '',
-    openai_image_rate_per_image: '',
     // Phase 2A — Meta integration global config
     meta_app_id: '',
     meta_app_secret: '',
@@ -510,7 +509,6 @@ export default function Settings() {
         gemini_rate_1k: data.gemini_rate_1k || '',
         gemini_rate_2k: data.gemini_rate_2k || '',
         gemini_rate_4k: data.gemini_rate_4k || '',
-        openai_image_rate_per_image: data.openai_image_rate_per_image || '',
       }));
       // (Cloudflare Pages projects removed — LP publishing now uses Shopify via Director config)
     } catch (err) {
@@ -531,7 +529,6 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
-      if (form.openai_image_rate_per_image) payload.openai_image_rate_per_image = form.openai_image_rate_per_image;
       // Phase 2A — Meta integration
       if (form.meta_app_id.trim()) payload.meta_app_id = form.meta_app_id.trim();
       if (form.meta_app_secret.trim()) payload.meta_app_secret = form.meta_app_secret.trim();
@@ -559,10 +556,27 @@ export default function Settings() {
     setTestResults(prev => ({ ...prev, [service]: 'testing...' }));
     try {
       let result;
-      if (service === 'openai') result = await api.testOpenAI();
-      else if (service === 'openai_image') result = await api.testOpenAIImage('gpt-image-2');
-      else if (service === 'gemini') result = await api.testGemini();
-      else if (service === 'anthropic') {
+      if (service === 'openai') {
+        const candidateKey = form.openai_api_key.trim();
+        result = await api.testOpenAI(candidateKey);
+        if (candidateKey) {
+          await api.updateSettings({ openai_api_key: candidateKey });
+          setForm(prev => ({ ...prev, openai_api_key: '' }));
+          await loadSettings();
+          result = { ...result, message: 'OpenAI API key is valid and saved.' };
+          toast.success('OpenAI key tested and saved');
+        }
+      } else if (service === 'gemini') {
+        const candidateKey = form.gemini_api_key.trim();
+        result = await api.testGemini(candidateKey);
+        if (candidateKey) {
+          await api.updateSettings({ gemini_api_key: candidateKey });
+          setForm(prev => ({ ...prev, gemini_api_key: '' }));
+          await loadSettings();
+          result = { ...result, message: 'Gemini API key is valid and saved.' };
+          toast.success('Gemini key tested and saved');
+        }
+      } else if (service === 'anthropic') {
         const candidateKey = form.anthropic_api_key.trim();
         result = await api.testAnthropic(candidateKey);
         if (candidateKey) {
@@ -757,7 +771,7 @@ export default function Settings() {
               <button
                 type="submit"
                 disabled={savingProfile}
-                className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+                className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
               >
                 {savingProfile ? 'Saving...' : 'Save Profile'}
               </button>
@@ -819,7 +833,7 @@ export default function Settings() {
                 minLength={12}
               />
             </div>
-            <button type="submit" className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors">
+            <button type="submit" className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors">
               Update Your Password
             </button>
           </form>
@@ -847,7 +861,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-2">
                 OpenAI API Key
                 <KeyStatusPill set={!!settings.openai_api_key} />
-                <InfoTooltip text="Used for copywriting, Creative Director reasoning, GPT Image 2 image generation, and quality checks. GPT Image 2 also requires image-model access on the key's OpenAI organization." position="right" />
+                <InfoTooltip text="Used for copywriting, Creative Director reasoning, and quality checks." position="right" />
               </label>
               <div className="flex flex-wrap gap-2">
                 <PasswordInput
@@ -868,23 +882,9 @@ export default function Settings() {
                   )}
                   Test
                 </button>
-                <button
-                  onClick={() => testConnection('openai_image')}
-                  disabled={testResults.openai_image === 'testing...'}
-                  className="ed-ghost text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
-                  title="Runs a billable low-quality GPT Image 2 access check."
-                >
-                  {testResults.openai_image === 'testing...' && (
-                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                    </svg>
-                  )}
-                  Test GPT Image 2
-                </button>
                 <CredentialRemoveButton settingKey="openai_api_key" settings={settings} onRemove={setPendingCredentialDelete} />
               </div>
               {testResults.openai && <p className="text-[12px] text-ed-ink3 mt-1">{testResults.openai}</p>}
-              {testResults.openai_image && <p className="text-[12px] text-ed-ink3 mt-1">{testResults.openai_image}</p>}
             </div>
 
             <div>
@@ -946,13 +946,50 @@ export default function Settings() {
               <div className="mt-3 space-y-2 text-[12px] leading-relaxed text-ed-ink2">
                 <p>Create one Meta developer app for Creative Factory, then reuse it for every project connection.</p>
                 <ol className="list-decimal pl-4 space-y-1">
-                  <li>Create or open a Meta app at <a className="underline" href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a>.</li>
-                  <li>Add Facebook Login for Business and the Marketing API product if Meta prompts for products.</li>
-                  <li>In the app's OAuth settings, add this exact redirect URI: <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>.</li>
-                  <li>Save the app's App ID and App Secret below.</li>
-                  <li>Inside each project, open Project Settings &rarr; Meta, connect your Meta account, then choose the ad account and Facebook Page.</li>
+                  <li>Sign in to Meta for Developers. Go to <a className="underline" href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a>. If this is your first time, register as a developer using your existing Facebook account and accept Meta's Platform Terms and Developer Policies.</li>
+                  <li>Click Create App. Meta walks you through a 5-step wizard: App details &rarr; Use cases &rarr; Business &rarr; Requirements &rarr; Overview.</li>
+                  <li>App details. Enter a descriptive app name like "Creative Factory" or "Creative Factory Ad Tool" and a contact email Meta can reach you at. Click Next.</li>
+                  <li>Use cases. Check only one box: Create &amp; manage ads with Marketing API. Do not check "Authenticate and request data from users with Facebook Login"; it is incompatible with Marketing API, and Meta will auto-attach Facebook Login for Business, the right OAuth flow for ad-account connections, when you pick Marketing API. Click Next.</li>
+                  <li>
+                    Business: connect a business portfolio. Three valid choices:
+                    <ul className="list-disc pl-4 mt-1 space-y-1">
+                      <li>Recommended: create a new portfolio for Creative Factory. Click "Create a business portfolio" at the bottom and make one called "Creative Factory".</li>
+                      <li>Pick an existing agency-level portfolio, such as your consulting or holding entity, not a brand-specific one. Avoid portfolios that represent specific e-commerce brands.</li>
+                      <li>Skip with "I don't want to connect a business portfolio yet" if you want to move fast. Standard Access does not require a portfolio. You can attach one later.</li>
+                    </ul>
+                  </li>
+                  <li>Requirements. For a Marketing API + Standard Access app, this typically shows "No requirements identified." Click Next.</li>
+                  <li>Overview &rarr; Create app. Meta shows a summary. Scroll down, agree to Meta's Platform Terms and Developer Policies, and click Create app. Meta creates the app and assigns a unique App ID and App Secret.</li>
+                  <li>Add the App Domain. In the main left sidebar, not any inner panel, click App settings &rarr; Basic. In the App domains field, add <code className="bg-cream px-1 rounded">creative-factory-software.vercel.app</code>, then scroll to the bottom and click Save changes.</li>
+                  <li>
+                    Add the OAuth Redirect URI. In the main left sidebar, expand Facebook Login for Business, the top-level item, not under Use cases. Click Settings under it. Find the Valid OAuth Redirect URIs field and paste the exact URL: <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>. Press Enter to register it as a chip; most Meta pages auto-save this field.
+                    <div className="mt-1">
+                      Confirm these OAuth toggles on the same page:
+                      <ul className="list-disc pl-4 mt-1 space-y-1">
+                        <li>Client OAuth login: Yes</li>
+                        <li>Web OAuth login: Yes</li>
+                        <li>Enforce HTTPS: Yes</li>
+                        <li>Use Strict Mode for redirect URIs: Yes</li>
+                        <li>Login from devices: No</li>
+                        <li>Login with the JavaScript SDK: No</li>
+                      </ul>
+                    </div>
+                  </li>
+                  <li>Get your App ID and App Secret. Go back to App settings &rarr; Basic. Copy the App ID. Click Show next to App Secret, confirm your Facebook password, and copy the secret too.</li>
+                  <li>Save them in Creative Factory. Open Settings &rarr; API Keys, this page, and paste both into the Meta App ID and Meta App Secret fields below. Save.</li>
+                  <li>
+                    Save them in Vercel as environment variables. In the Vercel project dashboard for <code className="bg-cream px-1 rounded">creative-factory-software</code>, open Settings &rarr; Environment Variables &rarr; Production. Add two new variables:
+                    <ul className="list-disc pl-4 mt-1 space-y-1">
+                      <li><code className="bg-cream px-1 rounded">META_APP_ID</code> = your App ID</li>
+                      <li><code className="bg-cream px-1 rounded">META_APP_SECRET</code> = your App Secret</li>
+                    </ul>
+                    These power the daily Meta token-refresh cron, which reads from <code className="bg-cream px-1 rounded">process.env</code> directly. Without env vars, tokens expire at the 60-day mark and the integration silently breaks even though OAuth still works.
+                  </li>
+                  <li>Connect a project. In each project, open Project Settings &rarr; Meta &rarr; Connect Meta Account. Authorize the app, choose the ad account, choose the Facebook Page, and you are connected.</li>
                 </ol>
-                <p>The app requests Meta permissions for ads management, ads read access, business management, and Page listing so it can read analytics, prepare posts, select a Facebook Page, and support Direct API posting when you choose that path.</p>
+                <p>The app requests these Meta permissions: <code className="bg-cream px-1 rounded">ads_management</code>, <code className="bg-cream px-1 rounded">ads_read</code>, <code className="bg-cream px-1 rounded">business_management</code>, and <code className="bg-cream px-1 rounded">pages_show_list</code>. They cover reading analytics, preparing posts, selecting a Page, and supporting Direct API posting when you choose that path.</p>
+                <p>You start at Standard Access, labeled "Development" in the dashboard. That is enough to connect your own ad accounts immediately, with no review needed.</p>
+                <p>If you eventually want to manage other businesses' ad accounts at scale, you will need Advanced Access via Meta's Marketing API Access Tier review, renamed from "Ads Management Standard Access" effective May 4, 2026. Requirements: at least 500 Marketing API calls in the prior 15 days, error rate under 15% over your last 500 calls, and Business Verification of your business entity. Skip for now; Standard Access works for current scope.</p>
               </div>
             </details>
 
@@ -1066,26 +1103,13 @@ export default function Settings() {
               />
             </div>
           </div>
-
-          <div className="mt-5 pt-5 border-t border-black/5">
-            <label className="block text-[12px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-1">
-              OpenAI Image ($/image)
-              <InfoTooltip text="Manual estimate used for GPT Image 2 cost logging. Actual OpenAI image cost varies by quality, size, and reference-image input tokens. Defaults to $0.04." position="right" />
-            </label>
-            <input
-              value={form.openai_image_rate_per_image}
-              onChange={e => setForm(p => ({ ...p, openai_image_rate_per_image: e.target.value }))}
-              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent max-w-xs"
-              placeholder="e.g., 0.04"
-            />
-          </div>
         </div>
 
         {/* Save button */}
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors"
+          className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
         >
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
