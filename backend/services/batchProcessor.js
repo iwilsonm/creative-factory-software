@@ -33,10 +33,139 @@ import {
   selectDiverseHeadlines,
 } from './headlineDiversity.js';
 import { chatWithImage } from './openai.js';
+import { buildImageAttemptRecord, serializeImageAttempts } from '../utils/imageAttempts.js';
 
 // Batch OCR model — simple text extraction from a generated image. Cheap and vision-capable.
 const BATCH_OCR_MODEL = 'gpt-4.1-mini';
 const BATCH_AD_UUID_NAMESPACE = '9e1c2c75-4b71-4e95-88c7-7605e54a3c03';
+
+function parsePipelineState(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function batchSubmittedAt(batch) {
+  const state = parsePipelineState(batch?.pipeline_state);
+  return state.gemini_batch_submitted_at
+    || batch?.started_at
+    || batch?.created_at
+    || new Date().toISOString();
+}
+
+function stringifyProviderValue(value, seen = new Set()) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value instanceof Error) return value.message || String(value);
+  if (typeof value !== 'object') return '';
+  if (seen.has(value)) return '';
+  seen.add(value);
+  const candidates = [
+    value.message,
+    value.reason,
+    value.status,
+    value.code,
+    value.error,
+    value.cause,
+    value.details,
+  ];
+  return candidates
+    .flatMap((entry) => Array.isArray(entry) ? entry : [entry])
+    .map((entry) => stringifyProviderValue(entry, seen))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function extractBatchResponseError(response) {
+  const text = stringifyProviderValue(
+    response?.error
+    || response?.response?.error
+    || response?.status
+    || response?.response?.promptFeedback
+  ).replace(/\s+/g, ' ').trim();
+  if (text) return text;
+
+  const candidate = response?.response?.candidates?.[0] || response?.candidates?.[0] || {};
+  const finishReason = candidate.finishReason || candidate.finish_reason;
+  const safetyText = stringifyProviderValue(candidate.safetyRatings || candidate.safety_ratings);
+  const parts = candidate.content?.parts || [];
+  const textExcerpt = parts
+    .map(part => (typeof part?.text === 'string' ? part.text : ''))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+  if (finishReason || safetyText || textExcerpt) {
+    return [
+      finishReason ? `finish_reason=${finishReason}` : '',
+      safetyText ? `safety=${safetyText}` : '',
+      textExcerpt ? `text=${textExcerpt}` : '',
+    ].filter(Boolean).join('; ');
+  }
+  return null;
+}
+
+function buildBatchImageAttempt({ batch, endedAt, errorClass = 'success', errorMessage = null }) {
+  const startedAt = batchSubmittedAt(batch);
+  return buildImageAttemptRecord({
+    attemptNumber: 1,
+    startedAt,
+    endedAt,
+    errorClass,
+    errorMessage,
+    queueDepthAtStart: 0,
+    source: 'gemini_batch',
+  });
+}
+
+async function createBatchAdCreative({ batch, adId, promptObj, promptText, status, storageId = undefined, imageAttempts, renderedHeadline, renderedBodyCopy, stagingAdSetId }) {
+  const completedAt = new Date().toISOString();
+  await convexClient.mutation(api.adCreatives.create, {
+    externalId: adId,
+    project_id: batch.project_id,
+    generation_mode: batch.generation_mode,
+    angle: batch.angle || undefined,
+    angle_name: batch.angle_name || undefined,
+    headline: renderedHeadline || (typeof promptObj === 'object' ? promptObj?.headline : undefined),
+    body_copy: renderedBodyCopy || (typeof promptObj === 'object' ? promptObj?.body_copy : undefined),
+    hook_lane: (typeof promptObj === 'object' ? promptObj?.hook_lane : null) || undefined,
+    core_claim: (typeof promptObj === 'object' ? promptObj?.core_claim : null) || undefined,
+    target_symptom: (typeof promptObj === 'object' ? promptObj?.target_symptom : null) || undefined,
+    emotional_entry: (typeof promptObj === 'object' ? promptObj?.emotional_entry : null) || undefined,
+    desired_belief_shift: (typeof promptObj === 'object' ? promptObj?.desired_belief_shift : null) || undefined,
+    opening_pattern: (typeof promptObj === 'object' ? promptObj?.opening_pattern : null) || undefined,
+    sub_angle: (typeof promptObj === 'object' ? promptObj?.sub_angle : null) || undefined,
+    scoring_mode: (typeof promptObj === 'object' ? promptObj?.scoring_mode : null) || undefined,
+    copy_render_expectation: (typeof promptObj === 'object' ? promptObj?.copy_render_expectation : null) || undefined,
+    product_expectation: (typeof promptObj === 'object' ? promptObj?.product_expectation : null) || undefined,
+    image_prompt: promptText || undefined,
+    gpt_creative_output: promptText || undefined,
+    aspect_ratio: batch.aspect_ratio,
+    storageId,
+    status,
+    completed_at: completedAt,
+    error_message: status === 'failed' ? (imageAttempts?.[0]?.error_message || 'Gemini Batch did not return an image for this ad.') : undefined,
+    failure_stage: status === 'failed' ? 'gemini_batch_result' : undefined,
+    image_attempts: serializeImageAttempts(imageAttempts),
+    auto_generated: true,
+    template_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'uploaded'
+      ? promptObj.visual_reference_id
+      : batch.template_image_id) || undefined,
+    inspiration_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'drive'
+      ? promptObj.visual_reference_id
+      : undefined) || undefined,
+    batch_job_id: batch.id || batch.externalId,
+    text_model: 'gpt-5.2',
+    image_model: 'nano-banana-2',
+    ad_set_id: stagingAdSetId || undefined,
+  });
+}
 
 async function updateBatchHeartbeat(batchId, fields = {}) {
   return updateBatchJob(batchId, {
@@ -344,7 +473,12 @@ export async function runBatch(batchId, onProgress, options = {}) {
     await throwIfCancelled();
     await updateBatchHeartbeat(batchId, {
       gemini_batch_job: geminiBatchName,
-      status: 'processing'
+      status: 'processing',
+      pipeline_state: JSON.stringify({
+        stage: 4,
+        stage_label: 'Step 5 of 5: Gemini Batch submitted',
+        gemini_batch_submitted_at: new Date().toISOString(),
+      })
     });
     emit({ type: 'status', status: 'processing', message: 'Batch submitted to Gemini. Polling for completion...' });
 
@@ -1072,6 +1206,18 @@ async function processBatchResults(batchId, job) {
   for (let i = 0; i < responses.length; i++) {
     try {
       const response = responses[i];
+      const resultEndedAt = new Date().toISOString();
+      // Get the prompt object (may be { prompt, headline, body_copy } or a legacy string)
+      const promptObj = prompts[i];
+      const promptText = typeof promptObj === 'string' ? promptObj : (promptObj?.prompt || null);
+      const adId = uuidv5(`batch-result:${batchId}:${i}`, BATCH_AD_UUID_NAMESPACE);
+      const existingAd = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId }).catch(() => null);
+      if (existingAd) {
+        savedCount++;
+        continue;
+      }
+      const batchProviderError = extractBatchResponseError(response);
+
       // Navigate the response structure — may vary by SDK version
       const parts = response?.response?.candidates?.[0]?.content?.parts
         || response?.candidates?.[0]?.content?.parts
@@ -1090,11 +1236,8 @@ async function processBatchResults(batchId, job) {
         }
       }
 
-      // Get the prompt object (may be { prompt, headline, body_copy } or a legacy string)
-      const promptObj = prompts[i];
-      const promptText = typeof promptObj === 'string' ? promptObj : (promptObj?.prompt || null);
-
       // If batch response had no image, retry with direct Gemini call (1 attempt)
+      let retryErrorMessage = null;
       if (!imageBuffer && promptText) {
         console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct Gemini call...`);
         try {
@@ -1109,12 +1252,28 @@ async function processBatchResults(batchId, job) {
             console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: Retry succeeded for response ${i}`);
           }
         } catch (retryErr) {
+          retryErrorMessage = retryErr.message;
           console.warn(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: Retry failed for response ${i}: ${retryErr.message}`);
         }
       }
 
       if (!imageBuffer) {
         console.warn(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i} (after retry)`);
+        const errorMessage = batchProviderError || retryErrorMessage || 'Gemini Batch completed without returning an image for this ad.';
+        await createBatchAdCreative({
+          batch,
+          adId,
+          promptObj,
+          promptText,
+          status: 'failed',
+          imageAttempts: [buildBatchImageAttempt({
+            batch,
+            endedAt: new Date().toISOString(),
+            errorClass: batchProviderError ? 'batch_image_rejected' : 'batch_unknown',
+            errorMessage,
+          })],
+          stagingAdSetId,
+        });
         failedCount++;
         continue;
       }
@@ -1138,53 +1297,22 @@ async function processBatchResults(batchId, job) {
         }
       }
 
-      // Create ad_creative record. The deterministic ID makes result-saving
-      // retries safe if a serverless invocation times out after partial writes.
-      const adId = uuidv5(`batch-result:${batchId}:${i}`, BATCH_AD_UUID_NAMESPACE);
-      const existingAd = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId }).catch(() => null);
-      if (existingAd) {
-        savedCount++;
-        continue;
-      }
-      const adCompletedAt = new Date().toISOString();
-      await convexClient.mutation(api.adCreatives.create, {
-        externalId: adId,
-        project_id: batch.project_id,
-        generation_mode: batch.generation_mode,
-        angle: batch.angle || undefined,
-        angle_name: batch.angle_name || undefined,
-        headline: renderedHeadline,
-        body_copy: renderedBodyCopy,
-        hook_lane: (typeof promptObj === 'object' ? promptObj?.hook_lane : null) || undefined,
-        core_claim: (typeof promptObj === 'object' ? promptObj?.core_claim : null) || undefined,
-        target_symptom: (typeof promptObj === 'object' ? promptObj?.target_symptom : null) || undefined,
-        emotional_entry: (typeof promptObj === 'object' ? promptObj?.emotional_entry : null) || undefined,
-        desired_belief_shift: (typeof promptObj === 'object' ? promptObj?.desired_belief_shift : null) || undefined,
-        opening_pattern: (typeof promptObj === 'object' ? promptObj?.opening_pattern : null) || undefined,
-        sub_angle: (typeof promptObj === 'object' ? promptObj?.sub_angle : null) || undefined,
-        scoring_mode: (typeof promptObj === 'object' ? promptObj?.scoring_mode : null) || undefined,
-        copy_render_expectation: (typeof promptObj === 'object' ? promptObj?.copy_render_expectation : null) || undefined,
-        product_expectation: (typeof promptObj === 'object' ? promptObj?.product_expectation : null) || undefined,
-        image_prompt: promptText || undefined,
-        gpt_creative_output: promptText || undefined,
-        aspect_ratio: batch.aspect_ratio,
-        storageId,
+      await createBatchAdCreative({
+        batch,
+        adId,
+        promptObj,
+        promptText,
         status: 'completed',
-        completed_at: adCompletedAt,
-        auto_generated: true,
-        template_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'uploaded'
-          ? promptObj.visual_reference_id
-          : batch.template_image_id) || undefined,
-        inspiration_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'drive'
-          ? promptObj.visual_reference_id
-          : undefined) || undefined,
-        batch_job_id: batchId,
-        text_model: 'gpt-5.2',
-        image_model: 'nano-banana-2',
-        // Phase 1 — Staging Page: link the ad to its parent ad_set if one was created.
-        // Falls back to undefined when ensureBatchAdSet failed; ad becomes an orphan
-        // (visible in AdStudio gallery, not in Staging Page) until manually grouped.
-        ad_set_id: stagingAdSetId || undefined,
+        storageId,
+        renderedHeadline,
+        renderedBodyCopy,
+        imageAttempts: [buildBatchImageAttempt({
+          batch,
+          endedAt: resultEndedAt,
+          errorClass: 'success',
+          errorMessage: null,
+        })],
+        stagingAdSetId,
       });
 
       if (batch.angle_name && typeof promptObj === 'object' && promptObj?.headline) {

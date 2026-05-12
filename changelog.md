@@ -1,5 +1,39 @@
 # Creative Factory — Changelog
 
+## 2026-05-12 — Project create route cleanup + batch image attempt telemetry
+
+**Summary**
+- Stopped `/projects/new` from triggering the cosmetic `/api/projects/new` 404 request if the project-detail component ever mounts on the create route.
+- Added shared image-attempt diagnostic helpers so sync Gemini and Gemini Batch writes use the same JSON shape.
+- Gemini sync attempts now include `source: "gemini_sync"` and newly saved Gemini Batch ads include a single `source: "gemini_batch"` attempt record.
+
+**Cause**
+- The create-project route could hit project-detail loading code and call `api.getProject('new')`, which the backend correctly treated as an unknown project ID.
+- Batch-generated ads bypassed `backend/services/gemini.js#generateImage`, so their `ad_creatives.image_attempts` field stayed null even though sync single-ad generation had attempt telemetry.
+
+**Fix**
+- Added a frontend guard for `id === "new"` in `ProjectDetail`.
+- Added `backend/utils/imageAttempts.js` and wired it into `gemini.js`, `adGenerator.js`, and `batchProcessor.js`.
+- Batch result saving now writes success telemetry; no-image batch responses now create a failed ad row with `failure_stage: "gemini_batch_result"` and provider diagnostics instead of leaving the ad invisible to later investigation.
+
+**Files modified**
+- `frontend/src/pages/ProjectDetail.jsx`
+- `backend/utils/imageAttempts.js`
+- `backend/services/gemini.js`
+- `backend/services/adGenerator.js`
+- `backend/services/batchProcessor.js`
+- `backend/__tests__/imageAttempts.test.js`
+- `backend/__tests__/geminiTimeout.test.js`
+- `backend/__tests__/batchProcessor.test.js`
+
+**Out of scope**
+- No historical backfill for older batch ads.
+- No Gemini Batch API behavior change.
+- No schema change; `image_attempts` already exists as an optional JSON string field.
+
+**Risk + rollback**
+- Risk is limited to diagnostics and one guarded frontend route path. Rollback: revert this changelog entry and the associated code commit; existing stored `image_attempts` JSON remains compatible because `source` is additive.
+
 ## 2026-05-08 — Substrate cutover: replace CF code with Thrive Digital substrate, preserve CF branding
 
 **Summary**

@@ -3,6 +3,7 @@ import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 import { withGeminiLimit } from './rateLimiter.js';
 import { logGeminiCost } from './costTracker.js';
+import { buildImageAttemptRecord } from '../utils/imageAttempts.js';
 
 let client = null;
 let lastApiKey = null;
@@ -28,10 +29,6 @@ const GEMINI_MODELS = {
   'nano-banana-2': 'gemini-3.1-flash-image-preview',
   'gemini-3-pro': 'gemini-3-pro-image-preview',
 };
-
-function durationMs(startedMs) {
-  return Math.max(0, Date.now() - startedMs);
-}
 
 function classifyGeminiError(err, timedOut = false) {
   const status = err?.status || err?.statusCode || err?.httpCode;
@@ -334,15 +331,16 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
             if (!extracted.imageBuffer) {
               throw buildNoImageError(result);
             }
-            imageAttempts.push({
-              attempt_number: attemptNumber,
-              started_at: startedAt,
-              ended_at: new Date().toISOString(),
-              duration_ms: durationMs(startedMs),
-              error_class: 'success',
-              error_message: null,
-              queue_depth_at_start: Number.isFinite(queueDepthAtStart) ? queueDepthAtStart : null,
-            });
+            imageAttempts.push(buildImageAttemptRecord({
+              attemptNumber,
+              startedAt,
+              endedAt: new Date().toISOString(),
+              durationMs: Date.now() - startedMs,
+              errorClass: 'success',
+              errorMessage: null,
+              queueDepthAtStart,
+              source: 'gemini_sync',
+            }));
             return result;
           } catch (err) {
             timedOut = err?.code === 'GEMINI_ATTEMPT_TIMEOUT' || (err?.name === 'AbortError' && !cancelSignal?.aborted);
@@ -353,15 +351,16 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
             const attemptMessage = errorClass === 'no_image_returned'
               ? JSON.stringify(err.noImageDiagnostics || {})
               : (err?.message || errorClass);
-            imageAttempts.push({
-              attempt_number: attemptNumber,
-              started_at: startedAt,
-              ended_at: new Date().toISOString(),
-              duration_ms: durationMs(startedMs),
-              error_class: errorClass,
-              error_message: sanitizeAttemptMessage(attemptMessage),
-              queue_depth_at_start: Number.isFinite(queueDepthAtStart) ? queueDepthAtStart : null,
-            });
+            imageAttempts.push(buildImageAttemptRecord({
+              attemptNumber,
+              startedAt,
+              endedAt: new Date().toISOString(),
+              durationMs: Date.now() - startedMs,
+              errorClass,
+              errorMessage: sanitizeAttemptMessage(attemptMessage),
+              queueDepthAtStart,
+              source: 'gemini_sync',
+            }));
             if (errorClass === 'timeout') {
               console.warn(`[Gemini ${modelLabel}] Attempt ${attemptNumber}/${GEMINI_IMAGE_MAX_ATTEMPTS} aborted after ${Math.round(GEMINI_IMAGE_ATTEMPT_TIMEOUT_MS / 1000)}s.`);
             }

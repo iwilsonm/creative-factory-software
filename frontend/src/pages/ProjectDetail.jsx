@@ -39,6 +39,7 @@ const LEGACY_SETTINGS_SUBTABS = {
 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const isNewProjectRoute = id === 'new';
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
@@ -185,20 +186,24 @@ export default function ProjectDetail() {
   }, [handleProductUpload]);
 
   useEffect(() => {
+    if (isNewProjectRoute) {
+      setLoading(false);
+      return;
+    }
     loadProject();
-  }, [id]);
+  }, [id, isNewProjectRoute]);
 
   useEffect(() => {
-    if (tab === 'overview' && id) {
+    if (tab === 'overview' && id && !isNewProjectRoute) {
       loadProjectCosts();
       loadProjectStats();
     }
-  }, [tab, id]);
+  }, [tab, id, isNewProjectRoute]);
 
   // Phase 6 — staging feature flag no longer read. Just load conductor angles
   // for any UI that needs the angle list.
   useEffect(() => {
-    if (!id) return;
+    if (!id || isNewProjectRoute) return;
     (async () => {
       try {
         const result = await api.getConductorAngles(id);
@@ -206,7 +211,7 @@ export default function ProjectDetail() {
         setConductorAngles(angles);
       } catch { setConductorAngles([]); }
     })();
-  }, [id]);
+  }, [id, isNewProjectRoute]);
 
   // Phase 6 — server-side redirect for legacy ?tab=staging URLs (bookmarks etc).
   // Runs synchronously during URL parse, before any tab body renders, so no flash.
@@ -244,6 +249,10 @@ export default function ProjectDetail() {
   };
 
   const loadProject = async () => {
+    if (isNewProjectRoute) {
+      setLoading(false);
+      return;
+    }
     try {
       const data = await api.getProject(id);
       setProject(prev => prev ? { ...prev, ...data } : data);

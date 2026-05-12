@@ -546,6 +546,116 @@ describe('batch pipeline', () => {
         completed_count: 1,
       }));
     });
+
+    it('writes gemini_batch image_attempts on successful batch ad creation', async () => {
+      mockGetBatchJob.mockResolvedValue(
+        makeBatchJob({
+          status: 'processing',
+          gemini_batch_job: 'batches/test-job',
+          started_at: '2026-05-12T00:00:00.000Z',
+          pipeline_state: JSON.stringify({ gemini_batch_submitted_at: '2026-05-12T00:00:10.000Z' }),
+          gpt_prompts: JSON.stringify([{ prompt: 'make ad', headline: 'Headline', body_copy: 'Body' }]),
+        })
+      );
+      mockGetProject.mockResolvedValue(makeProject());
+      mockGetClient.mockResolvedValue({
+        batches: {
+          get: vi.fn().mockResolvedValue({
+            state: 'JOB_STATE_SUCCEEDED',
+            dest: {
+              inlinedResponses: [{
+                response: {
+                  candidates: [{
+                    content: {
+                      parts: [{
+                        inlineData: {
+                          data: Buffer.from('image').toString('base64'),
+                          mimeType: 'image/png',
+                        },
+                      }],
+                    },
+                  }],
+                },
+              }],
+            },
+          }),
+        },
+      });
+      mockConvexQuery.mockResolvedValue(null);
+      mockUploadBuffer.mockResolvedValue('storage-1');
+
+      const { pollBatchJob } = await import('../services/batchProcessor.js');
+      const result = await pollBatchJob('batch-001');
+
+      expect(result).toBe('completed');
+      const createCall = mockConvexMutation.mock.calls.find(([, fields]) => fields?.externalId?.startsWith('test-batch-result'));
+      expect(createCall).toBeTruthy();
+      const attempts = JSON.parse(createCall[1].image_attempts);
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]).toMatchObject({
+        attempt_number: 1,
+        started_at: '2026-05-12T00:00:10.000Z',
+        error_class: 'success',
+        error_message: null,
+        queue_depth_at_start: 0,
+        source: 'gemini_batch',
+      });
+    });
+
+    it('writes failed ad telemetry when a batch result has no image', async () => {
+      mockGetBatchJob.mockResolvedValue(
+        makeBatchJob({
+          status: 'processing',
+          gemini_batch_job: 'batches/test-job',
+          started_at: '2026-05-12T00:00:00.000Z',
+          pipeline_state: JSON.stringify({ gemini_batch_submitted_at: '2026-05-12T00:00:10.000Z' }),
+          gpt_prompts: JSON.stringify([{ prompt: 'make ad', headline: 'Headline', body_copy: 'Body' }]),
+        })
+      );
+      mockGetProject.mockResolvedValue(makeProject());
+      mockGetClient.mockResolvedValue({
+        batches: {
+          get: vi.fn().mockResolvedValue({
+            state: 'JOB_STATE_SUCCEEDED',
+            dest: {
+              inlinedResponses: [{
+                response: {
+                  candidates: [{
+                    finishReason: 'SAFETY',
+                    content: {
+                      parts: [{ text: 'Cannot generate this image.' }],
+                    },
+                  }],
+                },
+              }],
+            },
+          }),
+        },
+      });
+      mockConvexQuery.mockResolvedValue(null);
+      mockGenerateImage.mockRejectedValue(new Error('retry refused'));
+
+      const { pollBatchJob } = await import('../services/batchProcessor.js');
+      const result = await pollBatchJob('batch-001');
+
+      expect(result).toBe('completed');
+      const createCall = mockConvexMutation.mock.calls.find(([, fields]) => fields?.status === 'failed');
+      expect(createCall).toBeTruthy();
+      expect(createCall[1]).toMatchObject({
+        status: 'failed',
+        failure_stage: 'gemini_batch_result',
+      });
+      const attempts = JSON.parse(createCall[1].image_attempts);
+      expect(attempts[0]).toMatchObject({
+        error_class: 'batch_image_rejected',
+        source: 'gemini_batch',
+      });
+      expect(attempts[0].error_message).toContain('finish_reason=SAFETY');
+      expect(mockUpdateBatchJob).toHaveBeenCalledWith('batch-001', expect.objectContaining({
+        status: 'completed',
+        failed_count: 1,
+      }));
+    });
   });
 
   // ── Batch Lifecycle ──────────────────────────────────────

@@ -78,6 +78,7 @@ describe('Gemini synchronous image attempt timeout', () => {
       error_message: null,
       duration_ms: expect.any(Number),
       queue_depth_at_start: 4,
+      source: 'gemini_sync',
     })]);
   });
 
@@ -104,10 +105,12 @@ describe('Gemini synchronous image attempt timeout', () => {
       attempt_number: 1,
       error_class: 'timeout',
       queue_depth_at_start: 4,
+      source: 'gemini_sync',
     });
     expect(result.imageAttempts[1]).toMatchObject({
       attempt_number: 2,
       error_class: 'success',
+      source: 'gemini_sync',
     });
   });
 
@@ -169,6 +172,7 @@ describe('Gemini synchronous image attempt timeout', () => {
         expect.objectContaining({
           attempt_number: 1,
           error_class: 'cancelled',
+          source: 'gemini_sync',
         }),
       ],
     });

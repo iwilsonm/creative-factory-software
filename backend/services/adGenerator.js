@@ -37,6 +37,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { serializeImageAttempts } from '../utils/imageAttempts.js';
 // Drive upload removed — ads are stored in Convex only
 
 // Pre-generate thumbnail cache for newly created ads
@@ -113,19 +114,6 @@ async function markAdCancelled(adId, emit, fields = {}) {
     ...fields,
   });
   emit({ type: 'cancelled', adId, message: AD_CANCELLED_MESSAGE });
-}
-
-function serializeImageAttempts(attempts) {
-  if (!Array.isArray(attempts) || attempts.length === 0) return undefined;
-  return JSON.stringify(attempts.map((attempt, index) => ({
-    attempt_number: Number(attempt.attempt_number) || index + 1,
-    started_at: attempt.started_at || null,
-    ended_at: attempt.ended_at || null,
-    duration_ms: Number.isFinite(attempt.duration_ms) ? attempt.duration_ms : null,
-    error_class: attempt.error_class || 'unknown',
-    error_message: attempt.error_message || null,
-    queue_depth_at_start: Number.isFinite(attempt.queue_depth_at_start) ? attempt.queue_depth_at_start : null,
-  })));
 }
 
 async function precacheThumb(adId, imageBuffer) {
