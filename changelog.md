@@ -1,5 +1,43 @@
 # Creative Factory — Changelog
 
+## 2026-05-08 — Substrate cutover: replace CF code with Thrive Digital substrate, preserve CF branding
+
+**Summary**
+- Replaced the Creative Factory codebase with the improved Thrive Digital fork while preserving Creative Factory branding end-to-end.
+- Marco's production URL remains `creative-factory-software.vercel.app`.
+- Marco's production data remains on `elated-mastiff-709.convex.cloud`.
+- Verified the production deployment after merge: `/api/health` reports `service: creative-factory` and `convexHost: elated-mastiff-709.convex.cloud`.
+
+**Capabilities gained**
+- Cancellable single-ad generation.
+- Creative Director reliability improvements: heartbeat, queue handoff, stale-run recovery, and daily cron route.
+- Gemini hardening: per-attempt timeout, 1K image generation default, provider diagnostics, and billing/quota messaging.
+- Direct-offer prompt support and stricter angle/headline context handling.
+- Simplified project setup textarea flow.
+
+**Capabilities lost / removed**
+- GPT Image 2 / OpenAI image-edit path removed.
+- Bulk `POST /api/documents/:projectId/generate-docs` removed.
+- PDF/upload-based project setup removed.
+
+**Schema delta**
+- Clean additive schema changes only; no data migration required.
+- Optional fields were added on `ad_creatives`, `conductor_runs`, and `projects`.
+- Convex schema additions are non-destructive and can remain in place if the app code is rolled back.
+
+**Files modified**
+- Massive substrate replacement. See merge commit `31a6915` for the full diff.
+
+**Out of scope**
+- Restoring GPT Image 2.
+- Restoring PDF upload in project setup.
+- Additional paid production ad-generation verification. Preview smoke already verified Mode 1 and Mode 2 generation.
+
+**Risk + rollback**
+- Rollback path: `git revert 31a6915` on `main`, then push. Vercel will auto-deploy the revert.
+- If rolling back after this changelog commit, revert both the changelog commit and merge commit or create a targeted revert that restores pre-cutover source.
+- Convex schema additions are optional/additive and should remain even after rollback.
+
 ## 2026-05-08 — Cold-scroll angle prompt
 
 - Angle-gen prompt template delivered via Copy LLM Prompt now produces cold-scroll-aware angles: Symptom Pattern asks for recurring recognition patterns, Scene to Center asks for emotional truth rather than literal moments, and a new AI Rendering Warning explains that structured fields may be rendered verbatim by the ad system.
