@@ -49,7 +49,7 @@ export default function EditorialLayout() {
   }, []);
 
   useEffect(() => {
-    if (!projectId) { setProjectName(''); return; }
+    if (!projectId || projectId === 'new') { setProjectName(''); return; }
     let cancelled = false;
     api.getProject(projectId)
       .then(p => { if (!cancelled) setProjectName(p?.brand_name || p?.name || ''); })

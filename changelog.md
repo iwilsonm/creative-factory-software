@@ -13,11 +13,13 @@
 
 **Fix**
 - Added a frontend guard for `id === "new"` in `ProjectDetail`.
+- Added the same guard in `EditorialLayout`, which also reads the current project ID for the header.
 - Added `backend/utils/imageAttempts.js` and wired it into `gemini.js`, `adGenerator.js`, and `batchProcessor.js`.
 - Batch result saving now writes success telemetry; no-image batch responses now create a failed ad row with `failure_stage: "gemini_batch_result"` and provider diagnostics instead of leaving the ad invisible to later investigation.
 
 **Files modified**
 - `frontend/src/pages/ProjectDetail.jsx`
+- `frontend/src/components/EditorialLayout.jsx`
 - `backend/utils/imageAttempts.js`
 - `backend/services/gemini.js`
 - `backend/services/adGenerator.js`
