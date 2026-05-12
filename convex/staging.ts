@@ -31,7 +31,9 @@ export const getPendingByProject = query({
   },
 });
 
-// List ad sets in "promoted" or "posted" lifecycle for the project (history view).
+// List ad sets visible in Ready-to-Post / posted history views.
+// Phase 6 introduced the "ready" lifecycle for ad sets created directly by
+// Creative Director. Keep "promoted" as a legacy alias and "posted" for history.
 export const getPromotedByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
@@ -40,7 +42,7 @@ export const getPromotedByProject = query({
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .collect();
     return allSets.filter(
-      (s) => s.lifecycle_status === "promoted" || s.lifecycle_status === "posted"
+      (s) => s.lifecycle_status === "ready" || s.lifecycle_status === "promoted" || s.lifecycle_status === "posted"
     );
   },
 });
