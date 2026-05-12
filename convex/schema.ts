@@ -470,6 +470,7 @@ export default defineSchema({
     angle_tag_filter: v.optional(v.string()),    // optional active-angle tag filter for Director selection
     headline_style: v.optional(v.string()),      // freeform prompt guidance
     primary_text_style: v.optional(v.string()),  // freeform prompt guidance
+    auto_learn: v.optional(v.boolean()),          // legacy/hidden setting accepted by the settings route
     template_tag: v.optional(v.string()),         // optional uploaded-template tag for Director random template selection
     default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed ad sets
     run_schedule: v.string(),           // "daily" | "weekdays" | "weekly_monday" | "custom" | "manual_only"
