@@ -1,5 +1,6 @@
 import { v5 as uuidv5 } from 'uuid';
-import { getClient, generateImage } from './gemini.js';
+import { toFile } from 'openai';
+import { getClient as getGeminiClient } from './gemini.js';
 import {
   extractBrief,
   generateHeadlines,
@@ -22,7 +23,7 @@ import {
   getAdSet, createAdSet, ensureDefaultCampaign, findConductorAngleByName, parseAdSetDefaults,
   convexClient, api
 } from '../convexClient.js';
-import { logGeminiCost } from './costTracker.js';
+import { logGeminiCost, logOpenAIImageCost } from './costTracker.js';
 import { withRetry } from './retry.js';
 import {
   buildHeadlineHistoryEntry,
@@ -34,6 +35,12 @@ import {
 } from './headlineDiversity.js';
 import { chatWithImage } from './openai.js';
 import { buildImageAttemptRecord, serializeImageAttempts } from '../utils/imageAttempts.js';
+import {
+  generateImage as generateProviderImage,
+  resolveImageModel,
+  getImageProvider,
+} from './imageProvider.js';
+import { getClient as getOpenAIImageClient, getOpenAIImageSize } from './openaiImage.js';
 
 // Batch OCR model — simple text extraction from a generated image. Cheap and vision-capable.
 const BATCH_OCR_MODEL = 'gpt-4.1-mini';
@@ -51,7 +58,9 @@ function parsePipelineState(value) {
 
 function batchSubmittedAt(batch) {
   const state = parsePipelineState(batch?.pipeline_state);
-  return state.gemini_batch_submitted_at
+  return state.image_batch_submitted_at
+    || state.openai_batch_submitted_at
+    || state.gemini_batch_submitted_at
     || batch?.started_at
     || batch?.created_at
     || new Date().toISOString();
@@ -111,8 +120,9 @@ function extractBatchResponseError(response) {
   return null;
 }
 
-function buildBatchImageAttempt({ batch, endedAt, errorClass = 'success', errorMessage = null }) {
+function buildBatchImageAttempt({ batch, endedAt, errorClass = 'success', errorMessage = null, imageProvider = null }) {
   const startedAt = batchSubmittedAt(batch);
+  const provider = imageProvider || getImageProvider(resolveImageModel(batch?.image_model));
   return buildImageAttemptRecord({
     attemptNumber: 1,
     startedAt,
@@ -120,12 +130,13 @@ function buildBatchImageAttempt({ batch, endedAt, errorClass = 'success', errorM
     errorClass,
     errorMessage,
     queueDepthAtStart: 0,
-    source: 'gemini_batch',
+    source: provider === 'openai' ? 'openai_batch' : 'gemini_batch',
   });
 }
 
 async function createBatchAdCreative({ batch, adId, promptObj, promptText, status, storageId = undefined, imageAttempts, renderedHeadline, renderedBodyCopy, stagingAdSetId }) {
   const completedAt = new Date().toISOString();
+  const imageProvider = getImageProvider(resolveImageModel(batch.image_model));
   await convexClient.mutation(api.adCreatives.create, {
     externalId: adId,
     project_id: batch.project_id,
@@ -150,8 +161,8 @@ async function createBatchAdCreative({ batch, adId, promptObj, promptText, statu
     storageId,
     status,
     completed_at: completedAt,
-    error_message: status === 'failed' ? (imageAttempts?.[0]?.error_message || 'Gemini Batch did not return an image for this ad.') : undefined,
-    failure_stage: status === 'failed' ? 'gemini_batch_result' : undefined,
+    error_message: status === 'failed' ? (imageAttempts?.[0]?.error_message || 'Image batch did not return an image for this ad.') : undefined,
+    failure_stage: status === 'failed' ? (imageProvider === 'openai' ? 'openai_batch_result' : 'gemini_batch_result') : undefined,
     image_attempts: serializeImageAttempts(imageAttempts),
     auto_generated: true,
     template_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'uploaded'
@@ -162,7 +173,7 @@ async function createBatchAdCreative({ batch, adId, promptObj, promptText, statu
       : undefined) || undefined,
     batch_job_id: batch.id || batch.externalId,
     text_model: 'gpt-5.2',
-    image_model: 'nano-banana-2',
+    image_model: resolveImageModel(batch.image_model),
     ad_set_id: stagingAdSetId || undefined,
   });
 }
@@ -376,15 +387,24 @@ export async function runBatch(batchId, onProgress, options = {}) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const shouldCancel = typeof options.shouldCancel === 'function' ? options.shouldCancel : null;
   let submittedGeminiBatchName = null;
+  let submittedOpenAIBatchId = null;
 
   const throwIfCancelled = async () => {
     if (!shouldCancel || !shouldCancel()) return;
     if (submittedGeminiBatchName) {
       try {
-        const ai = await getClient();
+        const ai = await getGeminiClient();
         await ai.batches.cancel({ name: submittedGeminiBatchName });
       } catch (err) {
         console.warn(`[BatchProcessor] Could not cancel Gemini batch ${submittedGeminiBatchName}: ${err.message}`);
+      }
+    }
+    if (submittedOpenAIBatchId) {
+      try {
+        const openai = await getOpenAIImageClient();
+        await openai.batches.cancel(submittedOpenAIBatchId);
+      } catch (err) {
+        console.warn(`[BatchProcessor] Could not cancel OpenAI batch ${submittedOpenAIBatchId}: ${err.message}`);
       }
     }
     try {
@@ -398,6 +418,14 @@ export async function runBatch(batchId, onProgress, options = {}) {
   if (!batch) throw new Error('Batch job not found');
   if (!['pending', 'queued'].includes(batch.status)) {
     throw new Error(`Batch is already ${batch.status}`);
+  }
+  const resolvedImageModel = resolveImageModel(batch.image_model);
+  const imageProvider = getImageProvider(resolvedImageModel);
+  if (batch.image_model !== resolvedImageModel || batch.image_provider !== imageProvider) {
+    await updateBatchHeartbeat(batchId, {
+      image_model: resolvedImageModel,
+      image_provider: imageProvider,
+    });
   }
 
   await throwIfCancelled();
@@ -447,8 +475,8 @@ export async function runBatch(batchId, onProgress, options = {}) {
       gpt_prompts: JSON.stringify(prompts.map(serializePromptForStorage)),
       status: 'submitting'
     });
-    console.log(`[BatchProcessor] Prompts persisted; preparing Gemini Batch submission (batch ${batchId.slice(0, 8)})`);
-    emit({ type: 'status', status: 'submitting', message: 'Submitting to Gemini Batch API...' });
+    console.log(`[BatchProcessor] Prompts persisted; preparing ${imageProvider} image batch submission (batch ${batchId.slice(0, 8)})`);
+    emit({ type: 'status', status: 'submitting', message: `Submitting to ${imageProvider === 'openai' ? 'OpenAI' : 'Gemini'} Batch API...` });
 
     // Load product image if configured (from Convex storage)
     let productImageData = null;
@@ -465,24 +493,48 @@ export async function runBatch(batchId, onProgress, options = {}) {
       }
     }
 
-    // Phase 2: Submit to Gemini Batch API
+    // Phase 2: Submit to provider image Batch API
     await throwIfCancelled();
-    const geminiBatchName = await submitGeminiBatch(batchId, prompts, batch.aspect_ratio, project.name, productImageData);
-    submittedGeminiBatchName = geminiBatchName;
+    const imageBatchSubmittedAt = new Date().toISOString();
+    if (imageProvider === 'openai') {
+      const openaiBatchId = await submitOpenAIBatch(batchId, prompts, batch.aspect_ratio, project.name);
+      submittedOpenAIBatchId = openaiBatchId;
 
-    await throwIfCancelled();
-    await updateBatchHeartbeat(batchId, {
-      gemini_batch_job: geminiBatchName,
-      status: 'processing',
-      pipeline_state: JSON.stringify({
-        stage: 4,
-        stage_label: 'Step 5 of 5: Gemini Batch submitted',
-        gemini_batch_submitted_at: new Date().toISOString(),
-      })
-    });
-    emit({ type: 'status', status: 'processing', message: 'Batch submitted to Gemini. Polling for completion...' });
+      await throwIfCancelled();
+      await updateBatchHeartbeat(batchId, {
+        openai_batch_job: openaiBatchId,
+        image_model: resolvedImageModel,
+        image_provider: imageProvider,
+        status: 'processing',
+        pipeline_state: JSON.stringify({
+          stage: 4,
+          stage_label: 'Step 5 of 5: OpenAI Batch submitted',
+          image_batch_submitted_at: imageBatchSubmittedAt,
+          openai_batch_submitted_at: imageBatchSubmittedAt,
+        })
+      });
+      emit({ type: 'status', status: 'processing', message: 'Batch submitted to OpenAI. Polling for completion...' });
+      console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} submitted. OpenAI job: ${openaiBatchId}`);
+    } else {
+      const geminiBatchName = await submitGeminiBatch(batchId, prompts, batch.aspect_ratio, project.name, productImageData);
+      submittedGeminiBatchName = geminiBatchName;
 
-    console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} submitted. Gemini job: ${geminiBatchName}`);
+      await throwIfCancelled();
+      await updateBatchHeartbeat(batchId, {
+        gemini_batch_job: geminiBatchName,
+        image_model: resolvedImageModel,
+        image_provider: imageProvider,
+        status: 'processing',
+        pipeline_state: JSON.stringify({
+          stage: 4,
+          stage_label: 'Step 5 of 5: Gemini Batch submitted',
+          image_batch_submitted_at: imageBatchSubmittedAt,
+          gemini_batch_submitted_at: imageBatchSubmittedAt,
+        })
+      });
+      emit({ type: 'status', status: 'processing', message: 'Batch submitted to Gemini. Polling for completion...' });
+      console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} submitted. Gemini job: ${geminiBatchName}`);
+    }
 
   } catch (err) {
     const isBillingExhausted = err?.code === 'BILLING_EXHAUSTED';
@@ -1015,7 +1067,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
  * @returns {Promise<string>} Gemini batch job name (for polling)
  */
 async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, productImageData = null) {
-  const ai = await getClient();
+  const ai = await getGeminiClient();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
 
   // Build inline requests — read images from temp files, caching shared paths
@@ -1077,6 +1129,49 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
   return batchJob.name;
 }
 
+async function submitOpenAIBatch(batchId, prompts, aspectRatio, projectName) {
+  const openai = await getOpenAIImageClient();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+  const size = getOpenAIImageSize(aspectRatio || '1:1');
+  const jsonl = prompts.map((promptObj, index) => JSON.stringify({
+    custom_id: `ad-${index}`,
+    method: 'POST',
+    url: '/v1/images/generations',
+    body: {
+      model: 'gpt-image-2',
+      prompt: typeof promptObj === 'string' ? promptObj : promptObj.prompt,
+      n: 1,
+      size,
+      quality: 'medium',
+      output_format: 'jpeg',
+    },
+  })).join('\n');
+
+  const file = await toFile(
+    Buffer.from(`${jsonl}\n`, 'utf8'),
+    `${projectName || 'project'}_${batchId.slice(0, 8)}_${timestamp}.jsonl`,
+    { type: 'application/jsonl' }
+  );
+
+  const uploaded = await withRetry(
+    () => openai.files.create({ file, purpose: 'batch' }),
+    { label: '[OpenAI image batch file upload]' }
+  );
+  const batchJob = await withRetry(
+    () => openai.batches.create({
+      input_file_id: uploaded.id,
+      endpoint: '/v1/images/generations',
+      completion_window: '24h',
+      metadata: {
+        batch_id: batchId,
+        project_name: String(projectName || '').slice(0, 80),
+      },
+    }),
+    { label: '[OpenAI image batch create]' }
+  );
+  return batchJob.id;
+}
+
 /**
  * Poll a single batch job for completion.
  * Called by the scheduler's polling loop.
@@ -1089,24 +1184,58 @@ export async function pollBatchJob(batchId) {
   if (batch.status === 'completed') return 'completed';
   if (batch.status === 'saving_results') return 'processing';
 
-  // If the batch is still in the pre-Gemini pipeline stages (generating prompts,
-  // submitting, etc.) it won't have a gemini_batch_job yet — that's normal, not a failure.
-  if (!batch.gemini_batch_job) {
+  const resolvedImageModel = resolveImageModel(batch.image_model);
+  const imageProvider = getImageProvider(resolvedImageModel);
+  const providerJobId = imageProvider === 'openai' ? batch.openai_batch_job : batch.gemini_batch_job;
+
+  // If the batch is still in the pre-image-provider pipeline stages (generating prompts,
+  // submitting, etc.) it won't have a provider batch job yet — that's normal, not a failure.
+  if (!providerJobId) {
     if (['generating_prompts', 'submitting'].includes(batch.status)) {
       return 'processing';
     }
     if (batch.status === 'processing') {
       await updateBatchHeartbeat(batchId, {
         status: 'failed',
-        error_message: 'Batch entered image-processing state without a Gemini batch job. It is safe to retry.',
+        error_message: `Batch entered image-processing state without a ${imageProvider === 'openai' ? 'OpenAI' : 'Gemini'} batch job. It is safe to retry.`,
       });
     }
     return 'failed';
   }
 
-  const ai = await getClient();
-
   try {
+    if (imageProvider === 'openai') {
+      const openai = await getOpenAIImageClient();
+      const job = await withRetry(
+        () => openai.batches.retrieve(batch.openai_batch_job),
+        { label: '[OpenAI image batch poll]', maxRetries: 2 }
+      );
+
+      if (job.status === 'completed') {
+        await processOpenAIBatchResults(batchId, job);
+        return 'completed';
+      }
+      if (['failed', 'expired', 'cancelled', 'canceled'].includes(job.status)) {
+        await updateBatchHeartbeat(batchId, {
+          status: 'failed',
+          error_message: `OpenAI batch job ${job.status}`,
+        });
+        return 'failed';
+      }
+      const counts = job.request_counts || {};
+      await updateBatchHeartbeat(batchId, {
+        batch_stats: JSON.stringify({
+          successfulCount: counts.completed || 0,
+          processingCount: Math.max(0, (counts.total || 0) - (counts.completed || 0) - (counts.failed || 0)),
+          failedCount: counts.failed || 0,
+          totalCount: counts.total || 0,
+        }),
+      });
+      console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: OpenAI status=${job.status}`);
+      return 'processing';
+    }
+
+    const ai = await getGeminiClient();
     const job = await withRetry(
       () => ai.batches.get({ name: batch.gemini_batch_job }),
       { label: '[Gemini batch poll]', maxRetries: 2 }
@@ -1153,6 +1282,90 @@ export async function pollBatchJob(batchId) {
   }
 }
 
+async function readOpenAIFileText(fileContent) {
+  if (!fileContent) return '';
+  if (typeof fileContent.text === 'function') return await fileContent.text();
+  if (Buffer.isBuffer(fileContent)) return fileContent.toString('utf8');
+  if (typeof fileContent === 'string') return fileContent;
+  if (fileContent.body && typeof fileContent.body.getReader === 'function') {
+    const response = new Response(fileContent.body);
+    return await response.text();
+  }
+  return String(fileContent);
+}
+
+async function processOpenAIBatchResults(batchId, job) {
+  if (!job.output_file_id) {
+    await updateBatchHeartbeat(batchId, {
+      status: 'failed',
+      error_message: 'OpenAI batch completed without an output file.',
+    });
+    return { savedCount: 0, failedCount: 0 };
+  }
+
+  const openai = await getOpenAIImageClient();
+  const fileContent = await withRetry(
+    () => openai.files.content(job.output_file_id),
+    { label: '[OpenAI image batch output download]' }
+  );
+  const text = await readOpenAIFileText(fileContent);
+  const responses = [];
+  let failedLines = 0;
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    try {
+      const item = JSON.parse(line);
+      const indexMatch = String(item.custom_id || '').match(/^ad-(\d+)$/);
+      const index = indexMatch ? Number(indexMatch[1]) : responses.length;
+      const body = item.response?.body;
+      const base64 = body?.data?.[0]?.b64_json;
+      if (!base64) {
+        const message = item.error?.message
+          || item.response?.body?.error?.message
+          || item.response?.status_code
+          || 'OpenAI batch returned no image for this ad.';
+        responses[index] = {
+          error: item.error || { message },
+          response: {
+            error: item.response?.body?.error || { message },
+            status: item.response?.status_code || 'no_image',
+          },
+        };
+        console.warn(`[BatchProcessor] OpenAI batch ${batchId.slice(0, 8)} missing image for ${item.custom_id || index}: ${message}`);
+        continue;
+      }
+      responses[index] = {
+        response: {
+          candidates: [{
+            content: {
+              parts: [{
+                inlineData: {
+                  data: base64,
+                  mimeType: body?.data?.[0]?.mime_type || 'image/jpeg',
+                },
+              }],
+            },
+          }],
+        },
+        usage: body?.usage || null,
+      };
+    } catch (err) {
+      failedLines++;
+      console.warn(`[BatchProcessor] Could not parse OpenAI batch result line for ${batchId.slice(0, 8)}: ${err.message}`);
+    }
+  }
+
+  const result = await processBatchResults(batchId, { dest: { inlinedResponses: responses } });
+  if (failedLines > 0) {
+    await updateBatchHeartbeat(batchId, {
+      failed_count: (result.failedCount || 0) + failedLines,
+    });
+  }
+  return result;
+}
+
 /**
  * Process completed batch results: extract images, upload to Convex storage,
  * upload to Drive, create ad_creative records.
@@ -1171,6 +1384,8 @@ async function processBatchResults(batchId, job) {
 
   const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch not found');
+  const resolvedImageModel = resolveImageModel(batch.image_model);
+  const imageProvider = getImageProvider(resolvedImageModel);
 
   const project = await getProject(batch.project_id);
   const prompts = JSON.parse(batch.gpt_prompts || '[]');
@@ -1236,16 +1451,23 @@ async function processBatchResults(batchId, job) {
         }
       }
 
-      // If batch response had no image, retry with direct Gemini call (1 attempt)
+      // If batch response had no image, retry once through the selected provider.
       let retryErrorMessage = null;
       if (!imageBuffer && promptText) {
-        console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct Gemini call...`);
+        console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct ${imageProvider} call...`);
         try {
-          const retryResult = await generateImage(
-            promptText,
-            batch.aspect_ratio || '1:1',
-            (typeof promptObj === 'object' && promptObj?.use_product_reference === false) ? null : productImageData
-          );
+          const retryResult = await generateProviderImage({
+            model: resolvedImageModel,
+            prompt: promptText,
+            aspectRatio: batch.aspect_ratio || '1:1',
+            productImage: (typeof promptObj === 'object' && promptObj?.use_product_reference === false) ? null : productImageData,
+            options: {
+              projectId: batch.project_id,
+              operation: 'ad_image_generation_batch_retry',
+              imageModel: resolvedImageModel,
+              imageSize: '1K',
+            },
+          });
           if (retryResult && retryResult.imageBuffer) {
             imageBuffer = retryResult.imageBuffer;
             mimeType = retryResult.mimeType || 'image/png';
@@ -1259,7 +1481,7 @@ async function processBatchResults(batchId, job) {
 
       if (!imageBuffer) {
         console.warn(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i} (after retry)`);
-        const errorMessage = batchProviderError || retryErrorMessage || 'Gemini Batch completed without returning an image for this ad.';
+        const errorMessage = batchProviderError || retryErrorMessage || `${imageProvider === 'openai' ? 'OpenAI' : 'Gemini'} Batch completed without returning an image for this ad.`;
         await createBatchAdCreative({
           batch,
           adId,
@@ -1271,6 +1493,7 @@ async function processBatchResults(batchId, job) {
             endedAt: new Date().toISOString(),
             errorClass: batchProviderError ? 'batch_image_rejected' : 'batch_unknown',
             errorMessage,
+            imageProvider,
           })],
           stagingAdSetId,
         });
@@ -1311,6 +1534,7 @@ async function processBatchResults(batchId, job) {
           endedAt: resultEndedAt,
           errorClass: 'success',
           errorMessage: null,
+          imageProvider,
         })],
         stagingAdSetId,
       });
@@ -1342,8 +1566,21 @@ async function processBatchResults(batchId, job) {
         await updateBatchHeartbeat(batchId);
       }
 
-      // Log Gemini cost with batch discount (fire-and-forget)
-      try { await logGeminiCost(batch.project_id, 1, '2K', true); } catch {}
+      // Log provider cost for successful batch result (fire-and-forget).
+      try {
+        if (imageProvider === 'openai') {
+          await logOpenAIImageCost({
+            projectId: batch.project_id,
+            operation: 'ad_image_generation_batch',
+            model: resolvedImageModel,
+            usage: response?.usage || {},
+            size: getOpenAIImageSize(batch.aspect_ratio || '1:1'),
+            quality: 'medium',
+          });
+        } else {
+          await logGeminiCost(batch.project_id, 1, '2K', true);
+        }
+      } catch {}
 
     } catch (err) {
       console.error(`[BatchProcessor] Failed to process result ${i}:`, err.message);
