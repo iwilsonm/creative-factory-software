@@ -1,5 +1,61 @@
 # Creative Factory — Changelog
 
+## 2026-05-13 — GPT Image 2 option restored from Thrive add-back
+
+**Summary**
+- Ported Ian's Thrive GPT Image 2 add-back into Creative Factory via the two upstream commits `5ca3b10` and `cd62511`, then merged the verified branch to `main`.
+- Added GPT Image 2 (OpenAI) as a third image generator option in Ad Studio, Batch Generation, and Creative Director settings while keeping Nano Banana 2 as the default.
+- Deployed the additive Convex schema changes to `elated-mastiff-709.convex.cloud` and production to `creative-factory-software.vercel.app`.
+
+**Cause / rationale**
+- The May 8 substrate cutover intentionally dropped GPT Image 2/OpenAI image generation, but Ian superseded that decision on 2026-05-13 and requested the proven Thrive add-back be ported into CF.
+- Marco already has an OpenAI key configured, so the add-back could be additive: no credential migration or default-model change.
+
+**Fix**
+- Added shared image-model metadata and provider routing for `nano-banana-2`, `nano-banana-pro`, and `gpt-image-2`.
+- Added the OpenAI Image service with per-attempt timeout, retry handling, billing/quota messages, and image-attempt telemetry.
+- Added OpenAI Image token-based cost tracking, Settings test support, and editable GPT Image 2 input/output token rates.
+- Extended batch jobs and Creative Director config to persist the selected image model/provider.
+- Preserved CF's existing batch diagnostics by writing `source: "openai_image"` for sync OpenAI attempts and `source: "openai_batch"` / `source: "gemini_batch"` for batch attempts.
+
+**Verification**
+- Backend test suite: 35 files / 323 tests passed.
+- Frontend production build passed.
+- Convex dry-run and deploy both targeted `https://elated-mastiff-709.convex.cloud`.
+- Vercel preview verified: health OK, authenticated project list OK, Ad Studio dropdown showed all three image generators, Settings showed GPT Image 2 (OpenAI) rates, and one Mode 1 GPT Image 2 smoke ad completed with `source: "openai_image"` attempt telemetry.
+- Production health and authenticated project-list smoke passed after merge; the preview smoke project was archived and no test project remained in the active list.
+
+**Files modified**
+- `backend/services/imageModels.js`
+- `backend/services/imageProvider.js`
+- `backend/services/openaiImage.js`
+- `backend/services/adGenerator.js`
+- `backend/services/batchProcessor.js`
+- `backend/services/conductorEngine.js`
+- `backend/services/costTracker.js`
+- `backend/routes/batches.js`
+- `backend/routes/conductor.js`
+- `backend/routes/settings.js`
+- `backend/convexClient.js`
+- `convex/schema.ts`
+- `convex/apiCosts.ts`
+- `convex/batchJobs.ts`
+- `convex/conductor.ts`
+- `frontend/src/components/AdStudio.jsx`
+- `frontend/src/components/AgentMonitor.jsx`
+- `frontend/src/components/BatchManager.jsx`
+- `frontend/src/pages/Settings.jsx`
+- `frontend/src/utils/imageModels.js`
+- New backend tests for provider routing, OpenAI Image, and OpenAI Image cost tracking.
+
+**Out of scope**
+- No GPT Image 2 promotion to default; Nano Banana 2 remains the default image model.
+- No restoration of removed PDF/upload-based project setup or removed bulk document-generation endpoint.
+- No historical backfill for existing batch/ad cost rows.
+
+**Risk + rollback**
+- Risk is concentrated in provider routing, model persistence, and cost accounting. Rollback: revert merge commit `dd195bd`; Convex schema additions are optional/additive and can remain in place.
+
 ## 2026-05-12 — Project create route cleanup + batch image attempt telemetry
 
 **Summary**
