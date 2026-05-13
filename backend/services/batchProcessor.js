@@ -136,6 +136,7 @@ function buildBatchImageAttempt({ batch, endedAt, errorClass = 'success', errorM
 
 async function createBatchAdCreative({ batch, adId, promptObj, promptText, status, storageId = undefined, imageAttempts, renderedHeadline, renderedBodyCopy, stagingAdSetId }) {
   const completedAt = new Date().toISOString();
+  const imageProvider = getImageProvider(resolveImageModel(batch.image_model));
   await convexClient.mutation(api.adCreatives.create, {
     externalId: adId,
     project_id: batch.project_id,
@@ -161,7 +162,7 @@ async function createBatchAdCreative({ batch, adId, promptObj, promptText, statu
     status,
     completed_at: completedAt,
     error_message: status === 'failed' ? (imageAttempts?.[0]?.error_message || 'Image batch did not return an image for this ad.') : undefined,
-    failure_stage: status === 'failed' ? 'image_batch_result' : undefined,
+    failure_stage: status === 'failed' ? (imageProvider === 'openai' ? 'openai_batch_result' : 'gemini_batch_result') : undefined,
     image_attempts: serializeImageAttempts(imageAttempts),
     auto_generated: true,
     template_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'uploaded'

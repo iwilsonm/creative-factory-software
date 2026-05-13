@@ -1132,7 +1132,7 @@ export default function Settings() {
         {/* OpenAI Image Rates */}
         <div className="ed-card p-6">
           <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight flex items-center gap-1 mb-1">
-            OpenAI Image Rates
+            GPT Image 2 (OpenAI) Rates
             <InfoTooltip text="Token pricing used for GPT Image 2 image cost tracking. OpenAI image costs are computed from actual input/output tokens returned by the Image API." position="right" />
           </h2>
           <p className="text-[12px] text-ed-ink3 mb-4">
